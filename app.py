@@ -46,26 +46,29 @@ def inicializar_session_state():
             'finalidade_credito': 'Financiamento de Aquisição',
             'historico_pagamento': 'Novo, sem histórico de pagamento',
             'valor_avaliacao_imovel': 2500000.0, 'saldo_devedor_credito': 1500000.0, 'ltv_operacao': 60.0,
-            'tipo_lastro_credito': 'Crédito Único', # Nova chave
+            'tipo_lastro_credito': 'Crédito Único',
             'tipo_devedor': 'Pessoa Física',
-            # PF
             'parcela_mensal_pf': 12000.0, 'renda_mensal_pf': 45000.0,
             'outras_dividas_pf': 'Nenhuma Relevante', 'patrimonio_liquido_pf': '> R$ 1.000.000',
             'score_credito_devedor': 'Excelente (>800)',
-            # PJ
             'dl_ebitda_pj': 2.5, 'liq_corrente_pj': 1.8, 'dscr_pj': 1.5,
-            # Carteira
             'num_devedores': 10, 'concentracao_top5': 60.0,
-            # Performance
             'meses_decorridos_pgto': 12, 'maior_atraso_hist': 'Sem atrasos', 'inadimplencia_90d': 0.0,
 
-
-            # --- PILAR 3: Estrutura da CCI ---
+            # --- PILAR 3: Estrutura da CCI (ROBUSTO) ---
             'reputacao_emissor': 'Banco de 1ª linha / Emissor especialista',
-            'regime_fiduciario': True,
+            'qualidade_servicer': 'Interna, com alta especialização',
+            'fundo_reserva_pmts': 0.0, 'fundo_reserva_regra': False,
+            'despesas_subordinadas': True, 'clareza_waterfall': 'Clara e bem definida',
+            'qualidade_parecer_legal': 'Escritório de 1ª linha',
+            'qualidade_relatorios': 'Alta, detalhados e frequentes',
             'garantias_adicionais': [],
             'seguros_mip_dfi': 'Sim, apólices vigentes e adequadas',
             'covenants_operacao': 'Fortes, com gatilhos objetivos',
+            # Módulo de Inadimplência
+            'saldo_inadimplente_90d': 0.0, 'parcelas_em_atraso_media': 0,
+            'historico_renegociacao': 'Sem histórico de renegociação',
+
 
             # --- PILAR 4: Cenário de Mercado ---
             'ambiente_juros': 'Juros altos / Restritivo',
@@ -301,8 +304,7 @@ def calcular_score_pilar2_credito_robusto():
 
     map_finalidade = {'Financiamento de Aquisição': 5, 'Financiamento à Construção': 3, 'Home Equity': 2}
     scores_credito.append(map_finalidade[st.session_state.finalidade_credito])
-    
-    # Penaliza sistema Price
+
     if st.session_state.op_amortizacao == 'SAC': scores_credito.append(5)
     else: scores_credito.append(4)
 
@@ -333,16 +335,16 @@ def calcular_score_pilar2_credito_robusto():
             if liq_corr > 1.5: scores_devedor.append(5)
             elif liq_corr >= 1.0: scores_devedor.append(3)
             else: scores_devedor.append(1)
-            
+
             dscr = st.session_state.dscr_pj
             if dscr > 1.5: scores_devedor.append(5)
             elif dscr >= 1.2: scores_devedor.append(3)
             else: scores_devedor.append(1)
     else: # Carteira de Créditos
         num_dev = st.session_state.num_devedores
-        if num_dev > 50: scores_devedor.append(5) # Pulverizada
-        elif num_dev > 10: scores_devedor.append(4) # Pouco concentrada
-        else: scores_devedor.append(2) # Concentrada
+        if num_dev > 50: scores_devedor.append(5)
+        elif num_dev > 10: scores_devedor.append(4)
+        else: scores_devedor.append(2)
 
         conc_top5 = st.session_state.concentracao_top5
         if conc_top5 < 30: scores_devedor.append(5)
@@ -352,7 +354,7 @@ def calcular_score_pilar2_credito_robusto():
     score_devedor = np.mean(scores_devedor) if scores_devedor else 1
 
     # --- Subfator 3: Performance do Crédito (Peso 20%) ---
-    score_performance = 3.5 # Score neutro para operações novas
+    score_performance = 4.0 # Score neutro para operações novas
     if st.session_state.historico_pagamento != 'Novo, sem histórico de pagamento':
         scores_perf = []
         map_hist_pag = {'Pagamentos em dia por > 12 meses': 5, 'Pagamentos em dia por < 12 meses': 4, 'Com histórico de atrasos': 1}
@@ -362,26 +364,69 @@ def calcular_score_pilar2_credito_robusto():
         if inad_90d == 0: scores_perf.append(5)
         elif inad_90d <= 2: scores_perf.append(3)
         else: scores_perf.append(1)
-        
+
         score_performance = np.mean(scores_perf) if scores_perf else 1
 
     # --- Cálculo Ponderado Final do Pilar ---
     score_final_pilar2 = (score_credito * 0.40) + (score_devedor * 0.40) + (score_performance * 0.20)
     return score_final_pilar2
 
-
-def calcular_score_pilar3_estrutura():
-    scores = []
+def calcular_score_pilar3_estrutura_robusto():
+    # --- Subfator 1: Estrutura e Proteções (Peso 70%) ---
+    scores_estrutura = []
+    # Prestadores e Governança
     map_reputacao = {'Banco de 1ª linha / Emissor especialista': 5, 'Instituição financeira média': 4, 'Securitizadora de nicho': 3, 'Emissor pouco conhecido ou com histórico negativo': 1}
-    scores.append(map_reputacao[st.session_state.reputacao_emissor])
-    scores.append(5 if st.session_state.regime_fiduciario else 1)
-    map_seguros = {'Sim, apólices vigentes e adequadas': 5, 'Sim, mas com ressalvas ou cobertura parcial': 3, 'Não ou apólices inadequadas': 1}
-    scores.append(map_seguros[st.session_state.seguros_mip_dfi])
+    map_servicer = {'Interna, com alta especialização': 5, 'Externa, 1ª linha': 4, 'Externa, padrão de mercado': 3, 'Servicer com histórico fraco': 1}
+    scores_estrutura.extend([map_reputacao[st.session_state.reputacao_emissor], map_servicer[st.session_state.qualidade_servicer]])
+    
+    # Mecanismos de Proteção
+    fr_pmts = st.session_state.fundo_reserva_pmts
+    if fr_pmts >= 3: score_fr = 5
+    elif fr_pmts >= 1: score_fr = 3
+    else: score_fr = 1
+    if st.session_state.fundo_reserva_regra: score_fr = min(5, score_fr + 1) # Bônus se houver recomposição
+    scores_estrutura.append(score_fr)
+    
+    map_waterfall = {'Clara e bem definida': 5, 'Padrão de mercado': 4, 'Ambígua ou com brechas': 2}
+    scores_estrutura.extend([map_waterfall[st.session_state.clareza_waterfall], (5 if st.session_state.despesas_subordinadas else 3)])
+    
+    # Contratual
+    map_parecer = {'Escritório de 1ª linha': 5, 'Padrão de mercado': 4, 'Limitado ou com ressalvas': 2}
+    map_reports = {'Alta, detalhados e frequentes': 5, 'Média, cumpre o mínimo regulatório': 3, 'Baixa, informações inconsistentes': 1}
     map_covenants = {'Fortes, com gatilhos objetivos': 5, 'Padrão de mercado': 3, 'Fracos ou inexistentes': 1}
-    scores.append(map_covenants[st.session_state.covenants_operacao])
-    score_base = np.mean(scores)
-    bonus = len(st.session_state.garantias_adicionais) * 0.25
-    return min(5.0, score_base + bonus)
+    scores_estrutura.extend([map_parecer[st.session_state.qualidade_parecer_legal], map_reports[st.session_state.qualidade_relatorios], map_covenants[st.session_state.covenants_operacao]])
+    
+    score_estrutura = np.mean(scores_estrutura) if scores_estrutura else 1
+    
+    # --- Subfator 2: Performance e Inadimplência (Peso 30%) ---
+    score_performance = 4.0 # Nota neutra/positiva para operações novas
+    # A análise de performance só é acionada se o crédito já estiver performando (info do Pilar 2)
+    if st.session_state.historico_pagamento != 'Novo, sem histórico de pagamento':
+        scores_perf = []
+        saldo_total = st.session_state.saldo_devedor_credito
+        perc_inad = (st.session_state.saldo_inadimplente_90d / saldo_total) * 100 if saldo_total > 0 else 0
+        if perc_inad == 0: scores_perf.append(5)
+        elif perc_inad <= 3: scores_perf.append(3)
+        elif perc_inad <= 7: scores_perf.append(2)
+        else: scores_perf.append(1)
+        
+        parc_atraso = st.session_state.parcelas_em_atraso_media
+        if parc_atraso == 0: scores_perf.append(5)
+        elif parc_atraso <= 2: scores_perf.append(3)
+        else: scores_perf.append(1)
+        
+        map_reneg = {'Sem histórico de renegociação': 5, 'Renegociações pontuais e bem-sucedidas': 4, 'Renegociações recorrentes ou com perdas': 1}
+        scores_perf.append(map_reneg[st.session_state.historico_renegociacao])
+        
+        score_performance = np.mean(scores_perf) if scores_perf else 1
+
+    # --- Ponderação Final do Pilar ---
+    # Para operações novas, a estrutura é mais importante. Para antigas, a performance ganha peso.
+    peso_estrutura = 0.7 if st.session_state.historico_pagamento == 'Novo, sem histórico de pagamento' else 0.5
+    peso_performance = 1 - peso_estrutura
+    
+    score_final_pilar3 = (score_estrutura * peso_estrutura) + (score_performance * peso_performance)
+    return score_final_pilar3
 
 def calcular_score_pilar4_cenario():
     scores = []
@@ -537,9 +582,23 @@ def callback_gerar_analise_p2():
     with st.spinner("Analisando o Pilar 2..."):
         st.session_state.analise_p2 = gerar_analise_ia("Pilar 2: Crédito e Devedor", dados_p2_str)
 
-
 def callback_gerar_analise_p3():
-    dados_p3_str = f"- Reputação do Emissor: {st.session_state.reputacao_emissor}\n- Segregação de Risco: Regime Fiduciário {'Sim' if st.session_state.regime_fiduciario else 'Não'}\n- Seguros Obrigatórios: {st.session_state.seguros_mip_dfi}\n- Garantias Adicionais: {', '.join(st.session_state.garantias_adicionais) if st.session_state.garantias_adicionais else 'Nenhuma'}"
+    dados_p3_str = f"""
+    - **Estrutura e Proteções**:
+      - Reputação do Emissor: {st.session_state.reputacao_emissor}
+      - Qualidade do Agente de Cobrança (Servicer): {st.session_state.qualidade_servicer}
+      - Fundo de Reserva: {st.session_state.fundo_reserva_pmts} pagamentos
+      - Clareza do Waterfall: {st.session_state.clareza_waterfall}
+      - Qualidade dos Covenants: {st.session_state.covenants_operacao}
+    """
+    if st.session_state.historico_pagamento != 'Novo, sem histórico de pagamento':
+        saldo_total = st.session_state.saldo_devedor_credito
+        perc_inad = (st.session_state.saldo_inadimplente_90d / saldo_total) * 100 if saldo_total > 0 else 0
+        dados_p3_str += f"""
+    - **Performance Atual (Vigilância)**:
+      - Inadimplência (>90d): {perc_inad:.2f}% do saldo devedor
+      - Histórico de Renegociação: {st.session_state.historico_renegociacao}
+    """
     with st.spinner("Analisando o Pilar 3..."):
         st.session_state.analise_p3 = gerar_analise_ia("Pilar 3: Estrutura da CCI", dados_p3_str)
 
@@ -667,6 +726,7 @@ with tab1:
         with st.container(border=True): st.markdown(st.session_state.analise_p1)
 
 with tab2:
+    # (Código do Pilar 2 mantido como na versão anterior)
     st.header("Pilar II: Análise do Crédito e do Devedor (Due Diligence)")
     st.markdown("Peso no Scorecard: **35%**")
 
@@ -680,7 +740,7 @@ with tab2:
             st.metric("LTV da Operação", f"{ltv_calc:.2f}%")
 
         st.selectbox("Finalidade do Crédito:", ['Financiamento de Aquisição', 'Financiamento à Construção', 'Home Equity'], key='finalidade_credito', help="Home Equity geralmente apresenta maior risco.")
-    
+
     with st.expander("Subfator 2: Perfil do Devedor (Peso 40%)", expanded=True):
         st.radio("Composição do Lastro de Crédito:", ['Crédito Único', 'Carteira de Créditos'], key='tipo_lastro_credito', horizontal=True)
         st.divider()
@@ -728,29 +788,59 @@ with tab2:
     if "analise_p2" in st.session_state:
         with st.container(border=True): st.markdown(st.session_state.analise_p2)
 
-
 with tab3:
-    st.header("Pilar III: Análise da Estrutura da CCI")
+    st.header("Pilar III: Análise da Estrutura da CCI (Due Diligence)")
     st.markdown("Peso no Scorecard: **15%**")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.selectbox("Reputação e Solidez do Emissor:", ['Banco de 1ª linha / Emissor especialista', 'Instituição financeira média', 'Securitizadora de nicho', 'Emissor pouco conhecido ou com histórico negativo'], key='reputacao_emissor')
-        st.selectbox("Qualidade dos Covenants Contratuais:", ['Fortes, com gatilhos objetivos', 'Padrão de mercado', 'Fracos ou inexistentes'], key='covenants_operacao')
-    with c2:
-        st.checkbox("Operação submetida a Regime Fiduciário?", key='regime_fiduciario')
-        st.selectbox("Seguros MIP e DFI:", ['Sim, apólices vigentes e adequadas', 'Sim, mas com ressalvas ou cobertura parcial', 'Não ou apólices inadequadas'], key='seguros_mip_dfi')
-    st.multiselect("Garantias Adicionais (além da Alienação Fiduciária do Imóvel):",
-                   options=["Fiança ou Aval dos sócios", "Cessão de outros recebíveis", "Penhor de aplicações financeiras"],
-                   key='garantias_adicionais')
 
-    if st.button("Calcular Score do Pilar 3", use_container_width=True):
-        st.session_state.scores['pilar3'] = calcular_score_pilar3_estrutura()
+    with st.expander("Subfator 1: Prestadores de Serviço e Governança", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.selectbox("Reputação e Solidez do Emissor:", ['Banco de 1ª linha / Emissor especialista', 'Instituição financeira média', 'Securitizadora de nicho', 'Emissor pouco conhecido ou com histórico negativo'], key='reputacao_emissor')
+        with c2:
+            st.selectbox("Qualidade do Agente de Cobrança (Servicer):", ['Interna, com alta especialização', 'Externa, 1ª linha', 'Externa, padrão de mercado', 'Servicer com histórico fraco'], key='qualidade_servicer')
+
+    with st.expander("Subfator 2: Mecanismos de Proteção Estrutural", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.number_input("Fundo de Reserva (em nº de pagamentos mensais)", key='fundo_reserva_pmts', min_value=0.0, step=0.5)
+            st.checkbox("Despesas da operação são subordinadas ao pagamento do investidor?", key='despesas_subordinadas')
+        with c2:
+            st.checkbox("Fundo de Reserva possui mecanismo de recomposição obrigatória?", key='fundo_reserva_regra')
+            st.selectbox("Clareza da Cascata de Pagamentos (Waterfall):", ['Clara e bem definida', 'Padrão de mercado', 'Ambígua ou com brechas'], key='clareza_waterfall')
+
+    with st.expander("Subfator 3: Qualidade Contratual e Transparência", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.selectbox("Qualidade do Parecer Legal da Estrutura:", ['Escritório de 1ª linha', 'Padrão de mercado', 'Limitado ou com ressalvas'], key='qualidade_parecer_legal')
+            st.selectbox("Qualidade dos Covenants Contratuais:", ['Fortes, com gatilhos objetivos', 'Padrão de mercado', 'Fracos ou inexistentes'], key='covenants_operacao')
+        with c2:
+            st.selectbox("Qualidade dos Relatórios Periódicos:", ['Alta, detalhados e frequentes', 'Média, cumpre o mínimo regulatório', 'Baixa, informações inconsistentes'], key='qualidade_relatorios')
+        st.multiselect("Garantias Adicionais (além da Alienação Fiduciária):",
+                       options=["Fiança ou Aval dos sócios", "Cessão de outros recebíveis", "Penhor de aplicações financeiras"],
+                       key='garantias_adicionais')
+
+    with st.expander("Subfator 4: Análise de Performance e Inadimplência (Vigilância/Surveillance)", expanded=True):
+        st.info("Preencha esta seção para operações em andamento. Para novas operações, os valores padrão podem ser mantidos.")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.number_input("Saldo inadimplente (> 90 dias) (R$)", key='saldo_inadimplente_90d')
+            saldo_total = st.session_state.saldo_devedor_credito
+            perc_inad = (st.session_state.saldo_inadimplente_90d / saldo_total) * 100 if saldo_total > 0 else 0
+            st.metric("Inadimplência (> 90d)", f"{perc_inad:.2f}%")
+        with c2:
+            st.number_input("Nº médio de parcelas em atraso por devedor inadimplente", key='parcelas_em_atraso_media', min_value=0, step=1)
+            st.selectbox("Histórico de Renegociação:", ['Sem histórico de renegociação', 'Renegociações pontuais e bem-sucedidas', 'Renegociações recorrentes ou com perdas'], key='historico_renegociacao')
+
+
+    if st.button("Calcular Score Robusto do Pilar 3", use_container_width=True):
+        st.session_state.scores['pilar3'] = calcular_score_pilar3_estrutura_robusto()
         st.plotly_chart(create_gauge_chart(st.session_state.scores['pilar3'], "Score Ponderado (Pilar 3)"), use_container_width=True)
     st.divider()
     st.subheader("🤖 Análise com IA Gemini")
     if st.button("Gerar Análise Qualitativa para o Pilar 3", use_container_width=True, on_click=callback_gerar_analise_p3): pass
     if "analise_p3" in st.session_state:
         with st.container(border=True): st.markdown(st.session_state.analise_p3)
+
 
 with tab4:
     st.header("Pilar IV: Análise do Cenário Macroeconômico e Setorial")
@@ -875,19 +965,17 @@ with tab_met:
     with st.expander("Pilar I: Risco do Lastro Imobiliário (Peso: 40%)"):
         st.markdown("Avalia a qualidade e a liquidez da garantia real através de uma due diligence aprofundada, dividida em subfatores ponderados: Avaliação e Localização (50%), Características Físicas (25%) e Due Diligence Legal (25%).")
 
-    with st.expander("Pilar II: Risco do Crédito e do Devedor (Peso: 35%) - Metodologia Robusta"):
+    with st.expander("Pilar II: Risco do Crédito e do Devedor (Peso: 35%)"):
         st.markdown("""
-        Avalia a capacidade e a disposição do devedor em honrar o fluxo de pagamentos. A análise é modular e ponderada.
-        - **Subfator 1: Características do Crédito (40% do pilar):** Analisa o LTV da operação e a finalidade do crédito (Aquisição, Construção, Home Equity), que possui diferentes perfis de risco.
-        - **Subfator 2: Perfil do Devedor (40% do pilar):** A análise se adapta se o lastro for um devedor único ou uma carteira.
-            - **Devedor Único (PF):** Aprofunda a análise com DTI (Comprometimento de Renda) calculado, Patrimônio Líquido e Score de Crédito.
-            - **Devedor Único (PJ):** Utiliza indicadores financeiros como Dívida/EBITDA, Liquidez Corrente e DSCR.
-            - **Carteira:** Foca na diversificação (nº de devedores) e no risco de concentração.
-        - **Subfator 3: Performance do Crédito (20% do pilar):** Se o crédito já possui histórico, este módulo avalia a performance de pagamento, incluindo inadimplência e maiores atrasos. Para créditos novos, uma nota neutra é atribuída.
+        Avalia a capacidade e a disposição do devedor em honrar o fluxo de pagamentos. A análise é modular e ponderada em três subfatores: Características do Crédito (40%), Perfil do Devedor (40%) e Performance (20%). A análise do devedor se adapta para cenários de Devedor Único (PF ou PJ) ou Carteira de Créditos.
         """)
 
-    with st.expander("Pilar III: Estrutura da CCI (Peso: 15%)"):
-        st.markdown("Analisa os mecanismos legais e financeiros que protegem o investidor: reputação do emissor, regime fiduciário, garantias adicionais, qualidade dos seguros e robustez dos covenants.")
-        
+    with st.expander("Pilar III: Estrutura da CCI (Peso: 15%) - Metodologia Robusta"):
+        st.markdown("""
+        Analisa os mecanismos legais, financeiros e operacionais que protegem o investidor. A análise é dividida em dois componentes principais com pesos dinâmicos:
+        - **Análise Estrutural (Peso 70% para operações novas):** Avalia a qualidade dos prestadores de serviço (Emissor, Servicer), os mecanismos de proteção (Fundo de Reserva, Waterfall) e a robustez dos contratos (Covenants, Pareceres).
+        - **Análise de Performance (Peso 30% para operações novas):** Módulo de vigilância que mede a saúde real do crédito através de métricas de inadimplência, parcelas em atraso e histórico de renegociações. O peso deste componente aumenta para operações com maior histórico de pagamento, pois os dados reais se tornam mais relevantes que a estrutura teórica.
+        """)
+
     with st.expander("Pilar IV: Cenário de Mercado (Peso: 10%)"):
         st.markdown("Contextualiza a operação no ambiente de mercado: juros, tendências do setor imobiliário, liquidez do ativo e ambiente regulatório.")
