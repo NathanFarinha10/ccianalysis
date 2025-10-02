@@ -770,7 +770,7 @@ with tab_prec:
             cdi_proj_input = st.number_input("Projeção de CDI Anual (%)", key='precificacao_cdi_proj', step=0.1)
 
         pesos = {'pilar1': 0.45, 'pilar2': 0.40, 'pilar3': 0.15}
-        rating_final_calc = ajustar_rating(converter_score_para_rating(sum(st.session_state.scores.get(p, 1) * w for p in pesos.keys())), st.session_state.ajuste_final)
+        rating_final_calc = ajustar_rating(converter_score_para_rating(sum(st.session_state.scores.get(p, 1) * pesos[p] for p in pesos.keys())), st.session_state.ajuste_final)
         spread_cci = calcular_spread_credito(rating_final_calc, duration_manual, st.session_state.op_volume)
         
         taxa_ntnb_dec = taxa_ntnb_input / 100
