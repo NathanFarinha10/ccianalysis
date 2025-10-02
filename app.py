@@ -33,13 +33,25 @@ def inicializar_session_state():
             'op_amortizacao': 'SAC', 'op_data_emissao': datetime.date(2024, 5, 1),
             'op_data_vencimento': datetime.date(2044, 5, 1),
 
-            # --- PILAR 1: Lastro Imobiliário ---
-            'laudo_recente': 'Sim, < 6 meses', 'metodologia_laudo': 'Comparativo de Mercado',
-            'liquidez_forcada_perc': 80.0, 'qualidade_localizacao': 'Bairro nobre, alta liquidez',
-            'vetor_crescimento': 'Estável / Consolidado', 'cidade_mapa': 'São Paulo, SP',
-            'tipo_imovel': 'Residencial (Apartamento/Casa)', 'estagio_imovel': 'Pronto e averbado',
-            'padrao_construtivo': 'Luxo/Alto Padrão', 'regularidade_matricula': 'Sim, sem ônus relevantes',
-            'habitese_regular': True,
+            # --- PILAR 1: Lastro Imobiliário (ROBUSTO) ---
+            # Subfator 1: Avaliação e Localização
+            'credibilidade_avaliador': '1ª Linha Nacional',
+            'qualidade_comparaveis': 'Sim',
+            'estresse_valor_perc': 15.0,
+            'fipezap_12m': 5.2, # Valor neutro
+            'liquidez_dias': 120, # 4 meses
+            'risco_oferta': 'Baixo, bairro consolidado',
+            'cidade_mapa': 'São Paulo, SP',
+            # Subfator 2: Características Físicas
+            'adequacao_produto': 'Ideal',
+            'reputacao_construtora': '1ª Linha',
+            'estado_conservacao': 'Novo/Reformado',
+            'tipo_imovel': 'Residencial (Apartamento/Casa)', # Mantido para contexto
+            # Subfator 3: Due Diligence Legal
+            'analise_dominial_20a': True,
+            'cnds_verificadas': ['CND do Imóvel (IPTU)', 'CND do Devedor'],
+            'dividas_propter_rem': True,
+            'risco_ambiental_imovel': 'Inexistente',
 
             # --- PILAR 2: Crédito e Devedor ---
             'valor_avaliacao_imovel': 2500000.0, 'saldo_devedor_credito': 1500000.0,
@@ -52,7 +64,7 @@ def inicializar_session_state():
 
             # --- PILAR 3: Estrutura da CCI ---
             'reputacao_emissor': 'Banco de 1ª linha / Emissor especialista',
-            'regime_fiduciario': 'True',
+            'regime_fiduciario': True,
             'garantias_adicionais': [],
             'seguros_mip_dfi': 'Sim, apólices vigentes e adequadas',
             'covenants_operacao': 'Fortes, com gatilhos objetivos',
@@ -233,29 +245,59 @@ def gerar_relatorio_pdf(ss):
 # ==============================================================================
 # FUNÇÕES DE CÁLCULO DE SCORE (LÓGICA INVERTIDA: 5 = MELHOR, 1 = PIOR)
 # ==============================================================================
-def calcular_score_pilar1_lastro():
-    scores = []
-    # Fator 1: Avaliação e Localização
-    map_laudo = {'Sim, < 6 meses': 5, 'Sim, entre 6 e 12 meses': 4, 'Não ou > 12 meses': 1}
-    map_metodologia = {'Comparativo de Mercado': 5, 'Renda ou Custo de Reposição': 3}
-    map_localizacao = {'Bairro nobre, alta liquidez': 5, 'Bairro bom, boa liquidez': 4, 'Região mediana': 3, 'Região periférica/Baixa liquidez': 1}
-    map_vetor = {'Forte valorização': 5, 'Estável / Consolidado': 4, 'Estagnado ou em declínio': 2}
-    scores.extend([map_laudo[st.session_state.laudo_recente], map_metodologia[st.session_state.metodologia_laudo],
-                   map_localizacao[st.session_state.qualidade_localizacao], map_vetor[st.session_state.vetor_crescimento]])
-    if st.session_state.liquidez_forcada_perc >= 80: scores.append(5)
-    elif st.session_state.liquidez_forcada_perc >= 70: scores.append(3)
-    else: scores.append(1)
+def calcular_score_pilar1_lastro_robusto():
+    # --- Subfator 1: Avaliação e Localização ---
+    scores_aval_loc = []
+    map_cred_aval = {'1ª Linha Nacional': 5, 'Regional Conhecido': 4, 'Pouco Conhecido': 2}
+    map_qual_comp = {'Sim': 5, 'Parcialmente': 3, 'Não': 1}
+    scores_aval_loc.extend([map_cred_aval[st.session_state.credibilidade_avaliador], map_qual_comp[st.session_state.qualidade_comparaveis]])
+
+    ltv_base = st.session_state.ltv_operacao
+    valor_imovel = st.session_state.valor_avaliacao_imovel
+    valor_estressado = valor_imovel * (1 - st.session_state.estresse_valor_perc / 100)
+    ltv_estressado = (st.session_state.saldo_devedor_credito / valor_estressado) * 100 if valor_estressado > 0 else 999
+    if ltv_estressado < 70: scores_aval_loc.append(5)
+    elif ltv_estressado < 85: scores_aval_loc.append(3)
+    else: scores_aval_loc.append(1)
+
+    fipezap = st.session_state.fipezap_12m
+    if fipezap > 7.5: scores_aval_loc.append(5)
+    elif fipezap > 0: scores_aval_loc.append(4)
+    else: scores_aval_loc.append(2)
+
+    liquidez_dias = st.session_state.liquidez_dias
+    if liquidez_dias <= 90: scores_aval_loc.append(5)
+    elif liquidez_dias <= 180: scores_aval_loc.append(3)
+    else: scores_aval_loc.append(1)
+
+    map_risco_oferta = {'Baixo, bairro consolidado': 5, 'Médio, alguns lançamentos': 3, 'Alto, muitos lançamentos': 1}
+    scores_aval_loc.append(map_risco_oferta[st.session_state.risco_oferta])
+    score_aval_loc = np.mean(scores_aval_loc) if scores_aval_loc else 1
+
+    # --- Subfator 2: Características Físicas e Adequação ---
+    scores_fisico = []
+    map_adequacao = {'Ideal': 5, 'Adequado': 4, 'Pouco Adequado': 2}
+    map_rep_const = {'1ª Linha': 5, 'Média': 3, 'Baixa/Desconhecida': 2}
+    map_conserv = {'Novo/Reformado': 5, 'Bom, com manutenção': 4, 'Regular, necessita reparos': 2, 'Ruim': 1}
+    scores_fisico.extend([map_adequacao[st.session_state.adequacao_produto], map_rep_const[st.session_state.reputacao_construtora], map_conserv[st.session_state.estado_conservacao]])
+    score_fisico = np.mean(scores_fisico) if scores_fisico else 1
+
+    # --- Subfator 3: Due Diligence Legal e Documental ---
+    scores_legal = []
+    scores_legal.append(5 if st.session_state.analise_dominial_20a else 2)
+    scores_legal.append(5 if st.session_state.dividas_propter_rem else 1)
     
-    # Fator 2: Características e Documentação
-    map_tipo_imovel = {'Residencial (Apartamento/Casa)': 5, 'Comercial (Loja/Sala)': 4, 'Galpão Logístico/Industrial': 3, 'Terreno/Gleba': 1}
-    map_estagio = {'Pronto e averbado': 5, 'Pronto, pendente Habite-se': 3, 'Em construção avançada (>80%)': 2, 'Em construção inicial': 1}
-    map_padrao = {'Luxo/Alto Padrão': 5, 'Médio Padrão': 4, 'Padrão Econômico': 3}
-    map_matricula = {'Sim, sem ônus relevantes': 5, 'Sim, com ônus gerenciáveis': 3, 'Não ou com ônus impeditivos': 1}
-    scores.extend([map_tipo_imovel[st.session_state.tipo_imovel], map_estagio[st.session_state.estagio_imovel],
-                   map_padrao[st.session_state.padrao_construtivo], map_matricula[st.session_state.regularidade_matricula],
-                   (5 if st.session_state.habitese_regular else 2)])
-                   
-    return np.mean(scores) if scores else 1
+    # Pontuação por CNDs verificadas
+    score_cnds = 1 + len(st.session_state.cnds_verificadas) # Começa em 1 e adiciona 1 ponto por CND
+    scores_legal.append(min(5, score_cnds))
+    
+    map_risco_amb = {'Inexistente': 5, 'Baixo/Gerenciado': 4, 'Requer análise': 2}
+    scores_legal.append(map_risco_amb[st.session_state.risco_ambiental_imovel])
+    score_legal = np.mean(scores_legal) if scores_legal else 1
+
+    # --- Cálculo Ponderado Final do Pilar ---
+    score_final_pilar1 = (score_aval_loc * 0.50) + (score_fisico * 0.25) + (score_legal * 0.25)
+    return score_final_pilar1
 
 def calcular_score_pilar2_credito():
     scores = []
@@ -264,13 +306,13 @@ def calcular_score_pilar2_credito():
     if ltv < 50: scores.append(5)
     elif ltv <= 70: scores.append(3)
     else: scores.append(1)
-    
+
     map_comprometimento = {'Abaixo de 30%': 5, 'Entre 30% e 40%': 3, 'Acima de 40%': 1, 'Não Aplicável (PJ)': 4}
     scores.append(map_comprometimento[st.session_state.comprometimento_renda])
-    
+
     map_historico = {'Pagamentos em dia por > 12 meses': 5, 'Pagamentos em dia por < 12 meses': 4, 'Novo, sem histórico de pagamento': 3, 'Com histórico de atrasos': 1}
     scores.append(map_historico[st.session_state.historico_pagamento])
-    
+
     # Fator 2: Perfil do Devedor
     map_score_credito = {'Excelente (>800)': 5, 'Bom (600-800)': 4, 'Regular (400-600)': 2, 'Ruim (<400)': 1, 'Não Aplicável (PJ)': 4}
     map_estabilidade_renda = {'Alta (Ex: Servidor Público, funcionário de grande empresa)': 5, 'Média (Ex: Profissional liberal estabelecido)': 4, 'Baixa (Ex: Autônomo, renda variável)': 2}
@@ -280,7 +322,7 @@ def calcular_score_pilar2_credito():
         scores.extend([map_score_credito[st.session_state.score_credito_devedor], map_estabilidade_renda[st.session_state.estabilidade_renda]])
     else: # Pessoa Jurídica
         scores.append(map_saude_pj[st.session_state.saude_financeira_pj])
-        
+
     return np.mean(scores) if scores else 1
 
 def calcular_score_pilar3_estrutura():
@@ -288,13 +330,13 @@ def calcular_score_pilar3_estrutura():
     map_reputacao = {'Banco de 1ª linha / Emissor especialista': 5, 'Instituição financeira média': 4, 'Securitizadora de nicho': 3, 'Emissor pouco conhecido ou com histórico negativo': 1}
     scores.append(map_reputacao[st.session_state.reputacao_emissor])
     scores.append(5 if st.session_state.regime_fiduciario else 1)
-    
+
     map_seguros = {'Sim, apólices vigentes e adequadas': 5, 'Sim, mas com ressalvas ou cobertura parcial': 3, 'Não ou apólices inadequadas': 1}
     scores.append(map_seguros[st.session_state.seguros_mip_dfi])
-    
+
     map_covenants = {'Fortes, com gatilhos objetivos': 5, 'Padrão de mercado': 3, 'Fracos ou inexistentes': 1}
     scores.append(map_covenants[st.session_state.covenants_operacao])
-    
+
     # Bônus por garantias adicionais
     score_base = np.mean(scores)
     bonus = len(st.session_state.garantias_adicionais) * 0.25
@@ -321,32 +363,24 @@ def gerar_fluxo_cci(ss):
         taxa_aa = ss.op_taxa / 100
         prazo_meses = int(ss.op_prazo)
         amortizacao_tipo = ss.op_amortizacao
-        
-        # Assume que a taxa da CCI é real (IPCA +) e usa-a para o fluxo real.
         taxa_am = (1 + taxa_aa)**(1/12) - 1
-        
         fluxo, saldo_atual = [], saldo_devedor
-        
+
         for mes in range(1, prazo_meses + 1):
             if saldo_atual <= 0.01: break
-            
             juros = saldo_atual * taxa_am
-            
             if amortizacao_tipo == 'Price':
                 pmt = npf.pmt(taxa_am, prazo_meses - mes + 1, -saldo_atual) if taxa_am > 0 else saldo_devedor / prazo_meses
                 principal = pmt - juros
             else: # SAC
                 principal = saldo_devedor / prazo_meses
-            
             principal = min(principal, saldo_atual)
             pagamento_total = principal + juros
-            
             fluxo.append({
                 "Mês": mes, "Juros": juros, "Amortização": principal,
                 "Pagamento Total": pagamento_total, "Saldo Devedor": saldo_atual - principal
             })
             saldo_atual -= principal
-            
         return pd.DataFrame(fluxo)
     except Exception as e:
         st.error(f"Erro ao gerar fluxo da CCI: {e}")
@@ -404,9 +438,23 @@ def gerar_analise_ia(nome_pilar, dados_pilar_str):
     except Exception:
         return "Erro: A chave da API do Gemini (GEMINI_API_KEY) não foi encontrada."
 
-
 def callback_gerar_analise_p1():
-    dados_p1_str = f"- Qualidade da Localização: {st.session_state.qualidade_localizacao}\n- Qualidade do Imóvel: {st.session_state.tipo_imovel} - {st.session_state.padrao_construtivo}\n- Atualização do Laudo: {st.session_state.laudo_recente}\n- Situação Legal: Matrícula {st.session_state.regularidade_matricula}, Habite-se {st.session_state.habitese_regular}"
+    dados_p1_str = f"""
+    - **Avaliação e Localização**:
+      - Credibilidade do Avaliador: {st.session_state.credibilidade_avaliador}
+      - Qualidade dos Comparáveis no Laudo: {st.session_state.qualidade_comparaveis}
+      - Variação FipeZAP (12m): {st.session_state.fipezap_12m}%
+      - Liquidez Estimada (dias): {st.session_state.liquidez_dias}
+      - Risco de Excesso de Oferta na Região: {st.session_state.risco_oferta}
+    - **Características do Ativo**:
+      - Adequação do Produto ao Mercado: {st.session_state.adequacao_produto}
+      - Reputação da Construtora: {st.session_state.reputacao_construtora}
+      - Estado de Conservação: {st.session_state.estado_conservacao}
+    - **Due Diligence Legal**:
+      - Análise de Cadeia Dominial (20 anos): {'Sim' if st.session_state.analise_dominial_20a else 'Não'}
+      - Verificação de Dívidas (Condomínio/IPTU): {'Sim' if st.session_state.dividas_propter_rem else 'Não'}
+      - Risco Ambiental: {st.session_state.risco_ambiental_imovel}
+    """
     with st.spinner("Analisando o Pilar 1..."):
         st.session_state.analise_p1 = gerar_analise_ia("Pilar 1: Lastro Imobiliário", dados_p1_str)
 
@@ -485,30 +533,54 @@ with tab0:
     st.text_input("Emissor da CCI (Ex: Banco, Securitizadora):", key='op_emissor')
 
 with tab1:
-    st.header("Pilar I: Análise do Lastro Imobiliário")
+    st.header("Pilar I: Análise do Lastro Imobiliário (Due Diligence)")
     st.markdown("Peso no Scorecard: **40%**")
-    with st.expander("Fator 1: Avaliação e Localização (Peso 50%)", expanded=True):
-        c1, c2 = st.columns(2)
+
+    with st.expander("Subfator 1: Avaliação e Análise de Localização (Peso 50%)", expanded=True):
+        st.subheader("Análise Crítica do Laudo")
+        c1, c2, c3 = st.columns(3)
         with c1:
-            st.selectbox("Laudo de avaliação é recente?", ['Sim, < 6 meses', 'Sim, entre 6 e 12 meses', 'Não ou > 12 meses'], key='laudo_recente')
-            st.selectbox("Qualidade da localização:", ['Bairro nobre, alta liquidez', 'Bairro bom, boa liquidez', 'Região mediana', 'Região periférica/Baixa liquidez'], key='qualidade_localizacao')
-            st.text_input("Cidade/Estado para Mapa:", key='cidade_mapa')
+            st.selectbox("Credibilidade do Avaliador:", ['1ª Linha Nacional', 'Regional Conhecido', 'Pouco Conhecido'], key='credibilidade_avaliador')
         with c2:
-            st.selectbox("Metodologia do laudo é adequada?", ['Comparativo de Mercado', 'Renda ou Custo de Reposição'], key='metodologia_laudo')
-            st.selectbox("Vetor de crescimento da região:", ['Forte valorização', 'Estável / Consolidado', 'Estagnado ou em declínio'], key='vetor_crescimento')
-            st.slider("Deságio para liquidez forçada (%)", 50.0, 100.0, key='liquidez_forcada_perc', format="%.1f%%")
-    with st.expander("Fator 2: Características Físicas e Documentais (Peso 50%)"):
-        c1, c2 = st.columns(2)
+            st.radio("Qualidade dos Comparáveis:", ["Sim", "Parcialmente", "Não"], key='qualidade_comparaveis')
+        with c3:
+            st.number_input("Estresse no Valor do Imóvel (%)", min_value=0.0, max_value=50.0, step=1.0, key='estresse_valor_perc')
+
+        st.subheader("Análise de Localização")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.number_input("Índice FipeZAP (Venda 12m, %):", key='fipezap_12m', format="%.2f")
+        with c2:
+            st.number_input("Tempo Médio Absorção (dias):", key='liquidez_dias')
+        with c3:
+            st.selectbox("Risco de Excesso de Oferta:", ['Baixo, bairro consolidado', 'Médio, alguns lançamentos', 'Alto, muitos lançamentos'], key='risco_oferta')
+        st.text_input("Cidade/Estado para Mapa:", key='cidade_mapa')
+
+
+    with st.expander("Subfator 2: Características Físicas e Adequação (Peso 25%)"):
+        c1, c2, c3 = st.columns(3)
         with c1:
             st.selectbox("Tipologia do Imóvel:", ['Residencial (Apartamento/Casa)', 'Comercial (Loja/Sala)', 'Galpão Logístico/Industrial', 'Terreno/Gleba'], key='tipo_imovel')
-            st.selectbox("Padrão Construtivo:", ['Luxo/Alto Padrão', 'Médio Padrão', 'Padrão Econômico'], key='padrao_construtivo')
-            st.checkbox("Possui Habite-se regularizado?", key='habitese_regular')
         with c2:
-            st.selectbox("Estágio do Imóvel:", ['Pronto e averbado', 'Pronto, pendente Habite-se', 'Em construção avançada (>80%)', 'Em construção inicial'], key='estagio_imovel')
-            st.selectbox("Matrícula do imóvel está regular?", ['Sim, sem ônus relevantes', 'Sim, com ônus gerenciáveis', 'Não ou com ônus impeditivos'], key='regularidade_matricula')
+            st.selectbox("Adequação do produto ao público-alvo:", ['Ideal', 'Adequado', 'Pouco Adequado'], key='adequacao_produto')
+        with c3:
+            st.selectbox("Reputação da Construtora (se aplicável):", ['1ª Linha', 'Média', 'Baixa/Desconhecida'], key='reputacao_construtora')
+        st.selectbox("Estado de Conservação:", ['Novo/Reformado', 'Bom, com manutenção', 'Regular, necessita reparos', 'Ruim'], key='estado_conservacao')
 
-    if st.button("Calcular Score e Mapa do Pilar 1", use_container_width=True):
-        st.session_state.scores['pilar1'] = calcular_score_pilar1_lastro()
+    with st.expander("Subfator 3: Due Diligence Legal e Documental (Peso 25%)"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.checkbox("Análise de Cadeia Dominial (20 anos) foi realizada?", key='analise_dominial_20a')
+            st.checkbox("Verificada a inexistência de dívidas (condomínio/IPTU)?", key='dividas_propter_rem')
+        with c2:
+            st.multiselect("Certidões Verificadas:",
+                          options=["CND do Imóvel (IPTU)", "CND do Devedor", "CNDs dos Vendedores Anteriores", "CNDs da Construtora (se novo)"],
+                          key='cnds_verificadas')
+        st.selectbox("Risco Ambiental Identificado no Imóvel:", ['Inexistente', 'Baixo/Gerenciado', 'Requer análise'], key='risco_ambiental_imovel')
+
+
+    if st.button("Calcular Score Robusto do Pilar 1", use_container_width=True):
+        st.session_state.scores['pilar1'] = calcular_score_pilar1_lastro_robusto()
         st.session_state.map_data = get_coords(st.session_state.cidade_mapa)
         st.plotly_chart(create_gauge_chart(st.session_state.scores['pilar1'], "Score Ponderado (Pilar 1)"), use_container_width=True)
     if st.session_state.get('map_data') is not None:
@@ -640,7 +712,6 @@ with tab_prec:
         else:
             st.info("Clique no botão acima para gerar o fluxo de caixa da CCI e calcular seu duration.")
 
-
 with tab_res:
     st.header("Resultado Final e Atribuição de Rating")
     if len(st.session_state.scores) < 4:
@@ -701,10 +772,12 @@ with tab_met:
     Cada pilar recebe uma pontuação de 1 (pior) a 5 (melhor), que é então ponderada para gerar um score final.
     """)
 
-    with st.expander("Pilar I: Risco do Lastro Imobiliário (Peso: 40%)"):
+    with st.expander("Pilar I: Risco do Lastro Imobiliário (Peso: 40%) - Metodologia Robusta"):
         st.markdown("""
-        Avalia a qualidade e a liquidez da garantia real, que é a principal fonte de recuperação do crédito em caso de inadimplência.
-        - **Fatores Analisados:** Qualidade e recentidade do laudo de avaliação, localização e liquidez da região, tipologia e padrão do imóvel, e regularidade da documentação (matrícula, habite-se).
+        Avalia a qualidade e a liquidez da garantia real através de uma due diligence aprofundada, dividida em subfatores ponderados.
+        - **Subfator 1: Avaliação e Localização (50% do pilar):** Analisa criticamente o laudo de avaliação, a credibilidade do avaliador e os comparáveis. Incorpora dados de mercado como o Índice FipeZAP e o tempo de absorção para medir a liquidez. Realiza um teste de estresse no valor do imóvel.
+        - **Subfator 2: Características Físicas e Adequação (25% do pilar):** Avalia a qualidade intrínseca do ativo, a reputação da construtora, o estado de conservação e a adequação do produto ao público-alvo e mercado local.
+        - **Subfator 3: Due Diligence Legal e Documental (25% do pilar):** Verifica a profundidade da análise legal, incluindo a cadeia dominial de 20 anos, a verificação de um conjunto amplo de certidões negativas e a checagem de passivos ocultos, como dívidas de condomínio, IPTU e riscos ambientais.
         """)
 
     with st.expander("Pilar II: Risco do Crédito e do Devedor (Peso: 35%)"):
