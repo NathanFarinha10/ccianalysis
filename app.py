@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import datetime
+from dateutil.relativedelta import relativedelta
 import google.generativeai as genai
 from fpdf import FPDF
 import os
@@ -25,13 +26,18 @@ def inicializar_session_state():
         st.session_state.map_data = None
         st.session_state.fluxo_cci_df = pd.DataFrame()
 
+        # Ajuste no prazo padrão para ajustar o calendário de vencimento
+        default_emissao = datetime.date(2024, 5, 1)
+        default_prazo_meses = 120 # 10 anos
+        default_vencimento = default_emissao + relativedelta(months=+default_prazo_meses)
+
         defaults = {
             # --- Chaves para a aba de Cadastro ---
             'op_nome': 'CCI Exemplo Residencial', 'op_codigo': 'CCIEX123',
             'op_emissor': 'Banco Exemplo S.A.', 'op_volume': 1500000.0,
-            'op_taxa': 11.5, 'op_indexador': 'IPCA +', 'op_prazo': 240,
-            'op_amortizacao': 'SAC', 'op_data_emissao': datetime.date(2024, 5, 1),
-            'op_data_vencimento': datetime.date(2044, 5, 1),
+            'op_taxa': 11.5, 'op_indexador': 'IPCA +', 'op_prazo': default_prazo_meses,
+            'op_amortizacao': 'SAC', 'op_data_emissao': default_emissao,
+            'op_data_vencimento': default_vencimento,
 
             # --- PILAR 1: Lastro Imobiliário (ROBUSTO) ---
             'credibilidade_avaliador': '1ª Linha Nacional', 'qualidade_comparaveis': 'Sim',
@@ -65,23 +71,15 @@ def inicializar_session_state():
             'garantias_adicionais': [],
             'seguros_mip_dfi': 'Sim, apólices vigentes e adequadas',
             'covenants_operacao': 'Fortes, com gatilhos objetivos',
-            # Módulo de Inadimplência
             'saldo_inadimplente_90d': 0.0, 'parcelas_em_atraso_media': 0,
             'historico_renegociacao': 'Sem histórico de renegociação',
 
-
-            # --- PILAR 4: Cenário de Mercado ---
-            'ambiente_juros': 'Juros altos / Restritivo',
-            'tendencia_setor': 'Estável com viés de alta',
-            'liquidez_mercado': 'Média / Seletiva',
-            'ambiente_regulatorio': 'Estável',
-
             # --- Precificação e Resultado ---
+            'precificacao_duration_manual': 5.0, # Novo campo para duration manual
             'precificacao_ntnb': 6.15,
             'precificacao_cdi_proj': 10.25,
             'ajuste_final': 0,
             'justificativa_final': '',
-            'modelagem_yield': 11.5
         }
         for key, value in defaults.items():
             if key not in st.session_state:
@@ -89,7 +87,6 @@ def inicializar_session_state():
 
 @st.cache_data
 def get_coords(city):
-    # (Função mantida como no original)
     if not city: return None
     try:
         geolocator = Nominatim(user_agent="cci_analyzer_app")
@@ -99,7 +96,6 @@ def get_coords(city):
     except Exception: return None
 
 def create_gauge_chart(score, title):
-    # (Função mantida como no original)
     if score is None: score = 1.0
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=round(score, 2),
@@ -116,7 +112,6 @@ def create_gauge_chart(score, title):
     return fig
 
 def converter_score_para_rating(score):
-    # (Função mantida como no original)
     if score is None: return "N/A"
     if score >= 4.75: return 'brAAA(sf)'
     elif score >= 4.25: return 'brAA(sf)'
@@ -130,7 +125,6 @@ def converter_score_para_rating(score):
     else: return 'brD(sf)'
 
 def ajustar_rating(rating_base, notches):
-    # (Função mantida como no original)
     escala = ['brD(sf)', 'brC(sf)','brCC(sf)','brCCC(sf)', 'brB(sf)', 'brBB(sf)', 'brBBB(sf)', 'brA(sf)', 'brAA(sf)', 'brAAA(sf)']
     try:
         idx_base = escala.index(rating_base)
@@ -139,7 +133,6 @@ def ajustar_rating(rating_base, notches):
     except (ValueError, TypeError): return rating_base
 
 class PDF(FPDF):
-    # (Classe PDF mantida como no original)
     def header(self):
         self.set_font('Arial', 'B', 15)
         self.cell(0, 10, 'Relatório de Análise e Rating de CCI', 0, 0, 'C')
@@ -189,7 +182,6 @@ class PDF(FPDF):
             ["Pilar 1: Lastro Imobiliário", f"{pesos['pilar1']*100:.0f}%", f"{ss.scores.get('pilar1', 0):.2f}", f"{ss.scores.get('pilar1', 0) * pesos['pilar1']:.2f}"],
             ["Pilar 2: Crédito e Devedor", f"{pesos['pilar2']*100:.0f}%", f"{ss.scores.get('pilar2', 0):.2f}", f"{ss.scores.get('pilar2', 0) * pesos['pilar2']:.2f}"],
             ["Pilar 3: Estrutura da CCI", f"{pesos['pilar3']*100:.0f}%", f"{ss.scores.get('pilar3', 0):.2f}", f"{ss.scores.get('pilar3', 0) * pesos['pilar3']:.2f}"],
-            ["Pilar 4: Cenário de Mercado", f"{pesos['pilar4']*100:.0f}%", f"{ss.scores.get('pilar4', 0):.2f}", f"{ss.scores.get('pilar4', 0) * pesos['pilar4']:.2f}"],
         ]
         for row in data:
             for i, item in enumerate(row): self.cell(col_widths[i], line_height, item, border=1, align='C')
@@ -208,7 +200,7 @@ def gerar_relatorio_pdf(ss):
         pdf.chapter_title('1. Dados Cadastrais da Operação')
         pdf.TabelaCadastro(ss)
 
-        pesos_cci = {'pilar1': 0.40, 'pilar2': 0.35, 'pilar3': 0.15, 'pilar4': 0.10}
+        pesos_cci = {'pilar1': 0.45, 'pilar2': 0.40, 'pilar3': 0.15}
         pdf.chapter_title('2. Scorecard e Rating Final')
         pdf.TabelaScorecard(ss, pesos_cci)
 
@@ -224,8 +216,8 @@ def gerar_relatorio_pdf(ss):
         pdf.ln(10)
 
         pdf.chapter_title('3. Análise Qualitativa com IA Gemini')
-        nomes_pilares = ["Lastro Imobiliário", "Crédito e Devedor", "Estrutura da CCI", "Cenário de Mercado"]
-        for i in range(1, 5):
+        nomes_pilares = ["Lastro Imobiliário", "Crédito e Devedor", "Estrutura da CCI"]
+        for i in range(1, 4): # Alterado para 4 para incluir até o pilar 3
             analise_key = f'analise_p{i}'
             if ss.get(analise_key):
                 pdf.set_font('Arial', 'B', 12)
@@ -240,12 +232,10 @@ def gerar_relatorio_pdf(ss):
         st.error(f"Ocorreu um erro crítico ao gerar o PDF: {e}")
         return b''
 
-
 # ==============================================================================
 # FUNÇÕES DE CÁLCULO DE SCORE
 # ==============================================================================
 def calcular_score_pilar1_lastro_robusto():
-    # --- Subfator 1: Avaliação e Localização (50%) ---
     scores_aval_loc = []
     map_cred_aval = {'1ª Linha Nacional': 5, 'Regional Conhecido': 4, 'Pouco Conhecido': 2}
     map_qual_comp = {'Sim': 5, 'Parcialmente': 3, 'Não': 1}
@@ -272,7 +262,6 @@ def calcular_score_pilar1_lastro_robusto():
     scores_aval_loc.append(map_risco_oferta[st.session_state.risco_oferta])
     score_aval_loc = np.mean(scores_aval_loc) if scores_aval_loc else 1
 
-    # --- Subfator 2: Características Físicas e Adequação (25%) ---
     scores_fisico = []
     map_adequacao = {'Ideal': 5, 'Adequado': 4, 'Pouco Adequado': 2}
     map_rep_const = {'1ª Linha': 5, 'Média': 3, 'Baixa/Desconhecida': 2}
@@ -280,7 +269,6 @@ def calcular_score_pilar1_lastro_robusto():
     scores_fisico.extend([map_adequacao[st.session_state.adequacao_produto], map_rep_const[st.session_state.reputacao_construtora], map_conserv[st.session_state.estado_conservacao]])
     score_fisico = np.mean(scores_fisico) if scores_fisico else 1
 
-    # --- Subfator 3: Due Diligence Legal e Documental (25%) ---
     scores_legal = []
     scores_legal.append(5 if st.session_state.analise_dominial_20a else 2)
     scores_legal.append(5 if st.session_state.dividas_propter_rem else 1)
@@ -290,12 +278,10 @@ def calcular_score_pilar1_lastro_robusto():
     scores_legal.append(map_risco_amb[st.session_state.risco_ambiental_imovel])
     score_legal = np.mean(scores_legal) if scores_legal else 1
 
-    # --- Cálculo Ponderado Final do Pilar ---
     score_final_pilar1 = (score_aval_loc * 0.50) + (score_fisico * 0.25) + (score_legal * 0.25)
     return score_final_pilar1
 
 def calcular_score_pilar2_credito_robusto():
-    # --- Subfator 1: Características do Crédito (Peso 40%) ---
     scores_credito = []
     ltv = st.session_state.ltv_operacao
     if ltv < 50: scores_credito.append(5)
@@ -310,7 +296,6 @@ def calcular_score_pilar2_credito_robusto():
 
     score_credito = np.mean(scores_credito) if scores_credito else 1
 
-    # --- Subfator 2: Perfil do Devedor (Peso 40%) ---
     scores_devedor = []
     if st.session_state.tipo_lastro_credito == 'Crédito Único':
         if st.session_state.tipo_devedor == 'Pessoa Física':
@@ -325,7 +310,7 @@ def calcular_score_pilar2_credito_robusto():
 
             map_patrimonio = {'> R$ 1.000.000': 5, 'R$ 250k - R$ 1.000.000': 4, '< R$ 250k': 2}
             scores_devedor.append(map_patrimonio[st.session_state.patrimonio_liquido_pf])
-        else: # Pessoa Jurídica
+        else:
             dl_ebitda = st.session_state.dl_ebitda_pj
             if dl_ebitda < 2.0: scores_devedor.append(5)
             elif dl_ebitda <= 4.0: scores_devedor.append(3)
@@ -340,7 +325,7 @@ def calcular_score_pilar2_credito_robusto():
             if dscr > 1.5: scores_devedor.append(5)
             elif dscr >= 1.2: scores_devedor.append(3)
             else: scores_devedor.append(1)
-    else: # Carteira de Créditos
+    else:
         num_dev = st.session_state.num_devedores
         if num_dev > 50: scores_devedor.append(5)
         elif num_dev > 10: scores_devedor.append(4)
@@ -353,8 +338,7 @@ def calcular_score_pilar2_credito_robusto():
 
     score_devedor = np.mean(scores_devedor) if scores_devedor else 1
 
-    # --- Subfator 3: Performance do Crédito (Peso 20%) ---
-    score_performance = 4.0 # Score neutro para operações novas
+    score_performance = 4.0
     if st.session_state.historico_pagamento != 'Novo, sem histórico de pagamento':
         scores_perf = []
         map_hist_pag = {'Pagamentos em dia por > 12 meses': 5, 'Pagamentos em dia por < 12 meses': 4, 'Com histórico de atrasos': 1}
@@ -367,40 +351,33 @@ def calcular_score_pilar2_credito_robusto():
 
         score_performance = np.mean(scores_perf) if scores_perf else 1
 
-    # --- Cálculo Ponderado Final do Pilar ---
     score_final_pilar2 = (score_credito * 0.40) + (score_devedor * 0.40) + (score_performance * 0.20)
     return score_final_pilar2
 
 def calcular_score_pilar3_estrutura_robusto():
-    # --- Subfator 1: Estrutura e Proteções (Peso 70%) ---
     scores_estrutura = []
-    # Prestadores e Governança
     map_reputacao = {'Banco de 1ª linha / Emissor especialista': 5, 'Instituição financeira média': 4, 'Securitizadora de nicho': 3, 'Emissor pouco conhecido ou com histórico negativo': 1}
     map_servicer = {'Interna, com alta especialização': 5, 'Externa, 1ª linha': 4, 'Externa, padrão de mercado': 3, 'Servicer com histórico fraco': 1}
     scores_estrutura.extend([map_reputacao[st.session_state.reputacao_emissor], map_servicer[st.session_state.qualidade_servicer]])
-    
-    # Mecanismos de Proteção
+
     fr_pmts = st.session_state.fundo_reserva_pmts
     if fr_pmts >= 3: score_fr = 5
     elif fr_pmts >= 1: score_fr = 3
     else: score_fr = 1
-    if st.session_state.fundo_reserva_regra: score_fr = min(5, score_fr + 1) # Bônus se houver recomposição
+    if st.session_state.fundo_reserva_regra: score_fr = min(5, score_fr + 1)
     scores_estrutura.append(score_fr)
-    
+
     map_waterfall = {'Clara e bem definida': 5, 'Padrão de mercado': 4, 'Ambígua ou com brechas': 2}
     scores_estrutura.extend([map_waterfall[st.session_state.clareza_waterfall], (5 if st.session_state.despesas_subordinadas else 3)])
-    
-    # Contratual
+
     map_parecer = {'Escritório de 1ª linha': 5, 'Padrão de mercado': 4, 'Limitado ou com ressalvas': 2}
     map_reports = {'Alta, detalhados e frequentes': 5, 'Média, cumpre o mínimo regulatório': 3, 'Baixa, informações inconsistentes': 1}
     map_covenants = {'Fortes, com gatilhos objetivos': 5, 'Padrão de mercado': 3, 'Fracos ou inexistentes': 1}
     scores_estrutura.extend([map_parecer[st.session_state.qualidade_parecer_legal], map_reports[st.session_state.qualidade_relatorios], map_covenants[st.session_state.covenants_operacao]])
-    
+
     score_estrutura = np.mean(scores_estrutura) if scores_estrutura else 1
-    
-    # --- Subfator 2: Performance e Inadimplência (Peso 30%) ---
-    score_performance = 4.0 # Nota neutra/positiva para operações novas
-    # A análise de performance só é acionada se o crédito já estiver performando (info do Pilar 2)
+
+    score_performance = 4.0
     if st.session_state.historico_pagamento != 'Novo, sem histórico de pagamento':
         scores_perf = []
         saldo_total = st.session_state.saldo_devedor_credito
@@ -409,87 +386,28 @@ def calcular_score_pilar3_estrutura_robusto():
         elif perc_inad <= 3: scores_perf.append(3)
         elif perc_inad <= 7: scores_perf.append(2)
         else: scores_perf.append(1)
-        
+
         parc_atraso = st.session_state.parcelas_em_atraso_media
         if parc_atraso == 0: scores_perf.append(5)
         elif parc_atraso <= 2: scores_perf.append(3)
         else: scores_perf.append(1)
-        
+
         map_reneg = {'Sem histórico de renegociação': 5, 'Renegociações pontuais e bem-sucedidas': 4, 'Renegociações recorrentes ou com perdas': 1}
         scores_perf.append(map_reneg[st.session_state.historico_renegociacao])
-        
+
         score_performance = np.mean(scores_perf) if scores_perf else 1
 
-    # --- Ponderação Final do Pilar ---
-    # Para operações novas, a estrutura é mais importante. Para antigas, a performance ganha peso.
     peso_estrutura = 0.7 if st.session_state.historico_pagamento == 'Novo, sem histórico de pagamento' else 0.5
     peso_performance = 1 - peso_estrutura
-    
+
     score_final_pilar3 = (score_estrutura * peso_estrutura) + (score_performance * peso_performance)
     return score_final_pilar3
 
-def calcular_score_pilar4_cenario():
-    scores = []
-    map_juros = {'Juros baixos / Expansionista': 5, 'Juros estáveis / Neutro': 4, 'Juros altos / Restritivo': 2}
-    map_setor = {'Aquecido com forte valorização': 5, 'Estável com viés de alta': 4, 'Estagnado ou com viés de baixa': 2}
-    map_liquidez = {'Alta / Vários compradores': 5, 'Média / Seletiva': 3, 'Baixa / Poucos negócios': 1}
-    map_regulatorio = {'Estável': 5, 'Com pequenas mudanças previstas': 4, 'Com mudanças relevantes em discussão': 2}
-    scores.extend([map_juros[st.session_state.ambiente_juros], map_setor[st.session_state.tendencia_setor],
-                   map_liquidez[st.session_state.liquidez_mercado], map_regulatorio[st.session_state.ambiente_regulatorio]])
-    return np.mean(scores) if scores else 1
-
 # ==============================================================================
-# FUNÇÕES DE GERAÇÃO DE FLUXO E CÁLCULO FINANCEIRO
+# FUNÇÕES DE CÁLCULO FINANCEIRO (SEM PILAR 4)
 # ==============================================================================
-
-def gerar_fluxo_cci(ss):
-    """Gera um fluxo de caixa simplificado para a CCI, baseado no sistema de amortização."""
-    try:
-        saldo_devedor = ss.op_volume
-        taxa_aa = ss.op_taxa / 100
-        prazo_meses = int(ss.op_prazo)
-        amortizacao_tipo = ss.op_amortizacao
-        taxa_am = (1 + taxa_aa)**(1/12) - 1
-        fluxo, saldo_atual = [], saldo_devedor
-
-        for mes in range(1, prazo_meses + 1):
-            if saldo_atual <= 0.01: break
-            juros = saldo_atual * taxa_am
-            if amortizacao_tipo == 'Price':
-                pmt = npf.pmt(taxa_am, prazo_meses - mes + 1, -saldo_atual) if taxa_am > 0 else saldo_devedor / prazo_meses
-                principal = pmt - juros
-            else: # SAC
-                principal = saldo_devedor / prazo_meses
-            principal = min(principal, saldo_atual)
-            pagamento_total = principal + juros
-            fluxo.append({
-                "Mês": mes, "Juros": juros, "Amortização": principal,
-                "Pagamento Total": pagamento_total, "Saldo Devedor": saldo_atual - principal
-            })
-            saldo_atual -= principal
-        return pd.DataFrame(fluxo)
-    except Exception as e:
-        st.error(f"Erro ao gerar fluxo da CCI: {e}")
-        return pd.DataFrame()
-
-def calcular_duration(df_fluxo, coluna_fluxo, taxa_yield_anual):
-    """ (Função mantida como no original) """
-    try:
-        if coluna_fluxo not in df_fluxo.columns:
-            st.error(f"Erro: a coluna '{coluna_fluxo}' não foi encontrada.")
-            return 0.0
-        taxa_yield_mensal = (1 + taxa_yield_anual / 100)**(1/12) - 1
-        soma_pv_fluxos = sum(cf / (1 + taxa_yield_mensal)**t for t, cf in zip(df_fluxo['Mês'], df_fluxo[coluna_fluxo]))
-        if soma_pv_fluxos == 0: return 0.0
-        soma_pv_ponderado_tempo = sum((t) * cf / (1 + taxa_yield_mensal)**t for t, cf in zip(df_fluxo['Mês'], df_fluxo[coluna_fluxo]))
-        duration_meses = soma_pv_ponderado_tempo / soma_pv_fluxos
-        return duration_meses / 12
-    except Exception as e:
-        st.error(f"Erro ao calcular o Duration: {e}")
-        return 0.0
 
 def calcular_spread_credito(rating, duration_anos, op_volume):
-    """Calcula um spread de crédito para CCI."""
     matriz_spread_base = {
         'brAAA(sf)': 1.20, 'brAA(sf)': 1.80, 'brA(sf)': 2.50,
         'brBBB(sf)': 3.30, 'brBB(sf)': 4.20, 'brB(sf)': 6.00,
@@ -561,12 +479,12 @@ def callback_gerar_analise_p2():
               - Comprometimento de Renda (DTI): {dti:.2f}%
               - Score de Crédito: {st.session_state.score_credito_devedor}
               - Patrimônio Líquido: {st.session_state.patrimonio_liquido_pf}"""
-        else: # Pessoa Jurídica
+        else:
             dados_p2_str += f"""
               - Dívida Líquida/EBITDA: {st.session_state.dl_ebitda_pj}x
               - Liquidez Corrente: {st.session_state.liq_corrente_pj}
               - DSCR: {st.session_state.dscr_pj}x"""
-    else: # Carteira
+    else:
         dados_p2_str += f"""
     - **Perfil da Carteira**:
       - Número de Devedores: {st.session_state.num_devedores}
@@ -602,11 +520,6 @@ def callback_gerar_analise_p3():
     with st.spinner("Analisando o Pilar 3..."):
         st.session_state.analise_p3 = gerar_analise_ia("Pilar 3: Estrutura da CCI", dados_p3_str)
 
-def callback_gerar_analise_p4():
-    dados_p4_str = f"- Ambiente de Juros: {st.session_state.ambiente_juros}\n- Tendência do Setor Imobiliário: {st.session_state.tendencia_setor}\n- Liquidez de Mercado para o Ativo: {st.session_state.liquidez_mercado}"
-    with st.spinner("Analisando o Pilar 4..."):
-        st.session_state.analise_p4 = gerar_analise_ia("Pilar 4: Cenário de Mercado", dados_p4_str)
-
 # ==============================================================================
 # CORPO PRINCIPAL DA APLICAÇÃO
 # ==============================================================================
@@ -617,7 +530,6 @@ st.divider()
 
 inicializar_session_state()
 
-# --- BLOCO DE SALVAR/CARREGAR ---
 st.sidebar.title("Gestão da Análise")
 st.sidebar.divider()
 uploaded_file = st.sidebar.file_uploader("1. Carregar Análise Salva (.json)", type="json")
@@ -643,10 +555,9 @@ st.sidebar.download_button(label="Salvar Análise Atual", data=json_string, file
                            mime="application/json", use_container_width=True)
 
 # --- DEFINIÇÃO DAS ABAS ---
-tab0, tab1, tab2, tab3, tab4, tab_prec, tab_res, tab_met = st.tabs([
+tab0, tab1, tab2, tab3, tab_prec, tab_res, tab_met = st.tabs([
     "Cadastro", "Pilar I: Lastro Imobiliário", "Pilar II: Crédito e Devedor",
-    "Pilar III: Estrutura da CCI", "Pilar IV: Cenário de Mercado",
-    "Precificação", "Resultado", "Metodologia"
+    "Pilar III: Estrutura da CCI", "Precificação", "Resultado", "Metodologia"
 ])
 
 with tab0:
@@ -663,13 +574,16 @@ with tab0:
         with c1_taxa: st.selectbox("Indexador:", ["IPCA +", "CDI +", "Pré-fixado"], key='op_indexador')
         with c2_taxa: st.number_input("Taxa (% a.a.):", key='op_taxa', format="%.2f")
         st.number_input("Prazo Remanescente (meses):", key='op_prazo', step=1)
-        st.date_input("Data de Vencimento:", key='op_data_vencimento')
+        st.date_input(
+            "Data de Vencimento:",
+            key='op_data_vencimento',
+            min_value=st.session_state.op_data_emissao # Validação adicionada
+        )
     st.text_input("Emissor da CCI (Ex: Banco, Securitizadora):", key='op_emissor')
 
 with tab1:
-    # (Código do Pilar 1 mantido como na versão anterior)
     st.header("Pilar I: Análise do Lastro Imobiliário (Due Diligence)")
-    st.markdown("Peso no Scorecard: **40%**")
+    st.markdown("Peso no Scorecard: **45%**")
 
     with st.expander("Subfator 1: Avaliação e Análise de Localização (Peso 50%)", expanded=True):
         st.subheader("Análise Crítica do Laudo")
@@ -726,9 +640,8 @@ with tab1:
         with st.container(border=True): st.markdown(st.session_state.analise_p1)
 
 with tab2:
-    # (Código do Pilar 2 mantido como na versão anterior)
     st.header("Pilar II: Análise do Crédito e do Devedor (Due Diligence)")
-    st.markdown("Peso no Scorecard: **35%**")
+    st.markdown("Peso no Scorecard: **40%**")
 
     with st.expander("Subfator 1: Características e Estrutura do Crédito (Peso 40%)", expanded=True):
         c1, c2, c3 = st.columns(3)
@@ -757,14 +670,14 @@ with tab2:
                     st.selectbox("Patrimônio Líquido Estimado:", ['< R$ 250k', 'R$ 250k - R$ 1.000.000', '> R$ 1.000.000'], key='patrimonio_liquido_pf')
                 st.selectbox("Score de Crédito (Serasa/SPC):", ['Excelente (>800)', 'Bom (600-800)', 'Regular (400-600)', 'Ruim (<400)'], key='score_credito_devedor')
 
-            else: # Pessoa Jurídica
+            else:
                 st.subheader("Análise Detalhada: Pessoa Jurídica")
                 c1,c2,c3 = st.columns(3)
                 with c1: st.number_input("Dívida Líquida / EBITDA", key='dl_ebitda_pj')
                 with c2: st.number_input("Liquidez Corrente", key='liq_corrente_pj')
                 with c3: st.number_input("DSCR (FCO/Serviço Dívida)", key='dscr_pj', help="Índice de Cobertura do Serviço da Dívida")
 
-        else: # Carteira de Créditos
+        else:
             st.subheader("Análise da Carteira")
             c1,c2 = st.columns(2)
             with c1: st.number_input("Número de Devedores na Carteira", key='num_devedores', min_value=1, step=1)
@@ -831,7 +744,6 @@ with tab3:
             st.number_input("Nº médio de parcelas em atraso por devedor inadimplente", key='parcelas_em_atraso_media', min_value=0, step=1)
             st.selectbox("Histórico de Renegociação:", ['Sem histórico de renegociação', 'Renegociações pontuais e bem-sucedidas', 'Renegociações recorrentes ou com perdas'], key='historico_renegociacao')
 
-
     if st.button("Calcular Score Robusto do Pilar 3", use_container_width=True):
         st.session_state.scores['pilar3'] = calcular_score_pilar3_estrutura_robusto()
         st.plotly_chart(create_gauge_chart(st.session_state.scores['pilar3'], "Score Ponderado (Pilar 3)"), use_container_width=True)
@@ -841,87 +753,54 @@ with tab3:
     if "analise_p3" in st.session_state:
         with st.container(border=True): st.markdown(st.session_state.analise_p3)
 
-
-with tab4:
-    st.header("Pilar IV: Análise do Cenário Macroeconômico e Setorial")
-    st.markdown("Peso no Scorecard: **10%**")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.selectbox("Ambiente de Taxa de Juros (Selic):", ['Juros baixos / Expansionista', 'Juros estáveis / Neutro', 'Juros altos / Restritivo'], key='ambiente_juros')
-        st.selectbox("Liquidez de Mercado para o tipo de ativo:", ['Alta / Vários compradores', 'Média / Seletiva', 'Baixa / Poucos negócios'], key='liquidez_mercado')
-    with c2:
-        st.selectbox("Tendência do Setor Imobiliário (específico do ativo):", ['Aquecido com forte valorização', 'Estável com viés de alta', 'Estagnado ou com viés de baixa'], key='tendencia_setor')
-        st.selectbox("Ambiente Legal e Regulatório:", ['Estável', 'Com pequenas mudanças previstas', 'Com mudanças relevantes em discussão'], key='ambiente_regulatorio')
-
-    if st.button("Calcular Score do Pilar 4", use_container_width=True):
-        st.session_state.scores['pilar4'] = calcular_score_pilar4_cenario()
-        st.plotly_chart(create_gauge_chart(st.session_state.scores['pilar4'], "Score Ponderado (Pilar 4)"), use_container_width=True)
-    st.divider()
-    st.subheader("🤖 Análise com IA Gemini")
-    if st.button("Gerar Análise Qualitativa para o Pilar 4", use_container_width=True, on_click=callback_gerar_analise_p4): pass
-    if "analise_p4" in st.session_state:
-        with st.container(border=True): st.markdown(st.session_state.analise_p4)
-
 with tab_prec:
     st.header("Precificação Indicativa da CCI")
-    if len(st.session_state.scores) < 4:
-        st.warning("⬅️ Por favor, calcule os 4 pilares de score para precificar a operação.")
+    if len(st.session_state.scores) < 3: # Alterado de 4 para 3
+        st.warning("⬅️ Por favor, calcule os 3 pilares de score para precificar a operação.")
     else:
         st.info("A precificação abaixo é calculada somando um spread de crédito (baseado no rating e duration) a uma taxa de referência (NTN-B).")
-        st.subheader("Geração do Fluxo de Caixa e Cálculo do Duration")
+        
+        st.subheader("Parâmetros de Mercado e Resultado")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            duration_manual = st.number_input("Macaulay Duration da Operação (Anos)", min_value=0.1, step=0.1, key='precificacao_duration_manual')
+        with c2:
+            taxa_ntnb_input = st.number_input(f"Taxa da NTN-B ({duration_manual:.2f} anos)", key='precificacao_ntnb', step=0.01)
+        with c3:
+            cdi_proj_input = st.number_input("Projeção de CDI Anual (%)", key='precificacao_cdi_proj', step=0.1)
 
-        if st.button("Gerar Fluxo e Calcular Duration", use_container_width=True):
-            st.session_state.fluxo_cci_df = gerar_fluxo_cci(st.session_state)
+        pesos = {'pilar1': 0.45, 'pilar2': 0.40, 'pilar3': 0.15}
+        rating_final_calc = ajustar_rating(converter_score_para_rating(sum(st.session_state.scores.get(p, 1) * w for p in pesos.keys())), st.session_state.ajuste_final)
+        spread_cci = calcular_spread_credito(rating_final_calc, duration_manual, st.session_state.op_volume)
+        
+        taxa_ntnb_dec = taxa_ntnb_input / 100
+        cdi_proj_dec = cdi_proj_input / 100
+        inflacao_implicita = ((1 + cdi_proj_dec) / (1 + taxa_ntnb_dec)) - 1 if taxa_ntnb_dec > -1 else 0
+        
+        taxa_real_cci = taxa_ntnb_dec + (spread_cci / 100)
+        taxa_nominal_cci = (1 + taxa_real_cci) * (1 + inflacao_implicita) - 1
+        spread_cdi_cci = (taxa_nominal_cci - cdi_proj_dec) * 100
 
-        if not st.session_state.fluxo_cci_df.empty:
-            df = st.session_state.fluxo_cci_df
-            st.line_chart(df.set_index('Mês')[['Juros', 'Amortização']])
-            st.line_chart(df.set_index('Mês')[['Saldo Devedor']])
-
-            duration_op = calcular_duration(df, 'Pagamento Total', st.session_state.modelagem_yield)
-            st.metric("Macaulay Duration Calculada", f"{duration_op:.2f} anos")
-            st.divider()
-
-            st.subheader("Parâmetros de Mercado e Resultado")
-            c1, c2 = st.columns(2)
-            with c1:
-                taxa_ntnb_input = st.number_input(f"Taxa da NTN-B ({duration_op:.2f} anos)", key='precificacao_ntnb', step=0.01)
-            with c2:
-                cdi_proj_input = st.number_input("Projeção de CDI Anual (%)", key='precificacao_cdi_proj', step=0.1)
-
-            rating_final_calc = ajustar_rating(converter_score_para_rating(sum(st.session_state.scores.get(p, 1) * w for p, w in {'pilar1': 0.4, 'pilar2': 0.35, 'pilar3': 0.15, 'pilar4': 0.1}.items())), st.session_state.ajuste_final)
-            spread_cci = calcular_spread_credito(rating_final_calc, duration_op, st.session_state.op_volume)
-
-            taxa_ntnb_dec = taxa_ntnb_input / 100
-            cdi_proj_dec = cdi_proj_input / 100
-            inflacao_implicita = ((1 + cdi_proj_dec) / (1 + taxa_ntnb_dec)) - 1 if taxa_ntnb_dec > -1 else 0
-
-            taxa_real_cci = taxa_ntnb_dec + (spread_cci / 100)
-            taxa_nominal_cci = (1 + taxa_real_cci) * (1 + inflacao_implicita) - 1
-            spread_cdi_cci = (taxa_nominal_cci - cdi_proj_dec) * 100
-
-            with st.container(border=True):
-                st.markdown(f"<h5>Precificação Indicativa ({rating_final_calc})</h5>", unsafe_allow_html=True)
-                st.metric("Spread de Crédito sobre NTN-B", f"{spread_cci:.2f}%")
-                st.success(f"**Taxa Indicativa (IPCA): IPCA + {taxa_ntnb_input + spread_cci:.2f}% a.a.**")
-                st.info(f"**Taxa Indicativa (CDI): CDI + {spread_cdi_cci:.2f}% a.a.**")
-        else:
-            st.info("Clique no botão acima para gerar o fluxo de caixa da CCI e calcular seu duration.")
+        with st.container(border=True):
+            st.markdown(f"<h5>Precificação Indicativa ({rating_final_calc})</h5>", unsafe_allow_html=True)
+            st.metric("Spread de Crédito sobre NTN-B", f"{spread_cci:.2f}%")
+            st.success(f"**Taxa Indicativa (IPCA): IPCA + {taxa_ntnb_input + spread_cci:.2f}% a.a.**")
+            st.info(f"**Taxa Indicativa (CDI): CDI + {spread_cdi_cci:.2f}% a.a.**")
 
 with tab_res:
     st.header("Resultado Final e Atribuição de Rating")
-    if len(st.session_state.scores) < 4:
-        st.warning("Calcule todos os 4 pilares de score antes de prosseguir.")
+    if len(st.session_state.scores) < 3: # Alterado de 4 para 3
+        st.warning("Calcule todos os 3 pilares de score antes de prosseguir.")
     else:
-        pesos = {'pilar1': 0.40, 'pilar2': 0.35, 'pilar3': 0.15, 'pilar4': 0.10}
+        pesos = {'pilar1': 0.45, 'pilar2': 0.40, 'pilar3': 0.15}
         score_final_ponderado = sum(st.session_state.scores.get(p, 1) * pesos[p] for p in pesos)
         rating_indicado = converter_score_para_rating(score_final_ponderado)
 
         st.subheader("Scorecard Mestre")
         data = {
-            'Pilar de Análise': ['Pilar 1: Lastro Imobiliário', 'Pilar 2: Crédito e Devedor', 'Pilar 3: Estrutura da CCI', 'Pilar 4: Cenário de Mercado'],
+            'Pilar de Análise': ['Pilar 1: Lastro Imobiliário', 'Pilar 2: Crédito e Devedor', 'Pilar 3: Estrutura da CCI'],
             'Peso': [f"{p*100:.0f}%" for p in pesos.values()],
-            'Pontuação (1-5)': [f"{st.session_state.scores.get(p, 'N/A'):.2f}" for p in st.session_state.scores.keys()],
+            'Pontuação (1-5)': [f"{st.session_state.scores.get(p, 'N/A'):.2f}" for p in pesos.keys()],
             'Score Ponderado': [f"{(st.session_state.scores.get(p, 1) * pesos[p]):.2f}" for p in pesos.keys()]
         }
         df_scores = pd.DataFrame(data).set_index('Pilar de Análise')
@@ -954,28 +833,24 @@ with tab_met:
     st.header("Metodologia de Rating para CCI")
     st.markdown("Esta metodologia foi desenvolvida para a análise e atribuição de rating a Cédulas de Crédito Imobiliário (CCI).")
 
-    st.subheader("1. Arquitetura do Rating: 4 Pilares Ponderados")
+    st.subheader("1. Arquitetura do Rating: 3 Pilares Ponderados")
     st.markdown("""
-    - **Pilar I: Análise do Lastro Imobiliário (Peso: 40%)**
-    - **Pilar II: Análise do Crédito e do Devedor (Peso: 35%)**
+    - **Pilar I: Análise do Lastro Imobiliário (Peso: 45%)**
+    - **Pilar II: Análise do Crédito e do Devedor (Peso: 40%)**
     - **Pilar III: Análise da Estrutura da Operação (Peso: 15%)**
-    - **Pilar IV: Análise do Cenário Macroeconômico e Setorial (Peso: 10%)**
     """)
 
-    with st.expander("Pilar I: Risco do Lastro Imobiliário (Peso: 40%)"):
+    with st.expander("Pilar I: Risco do Lastro Imobiliário (Peso: 45%)"):
         st.markdown("Avalia a qualidade e a liquidez da garantia real através de uma due diligence aprofundada, dividida em subfatores ponderados: Avaliação e Localização (50%), Características Físicas (25%) e Due Diligence Legal (25%).")
 
-    with st.expander("Pilar II: Risco do Crédito e do Devedor (Peso: 35%)"):
+    with st.expander("Pilar II: Risco do Crédito e do Devedor (Peso: 40%)"):
         st.markdown("""
         Avalia a capacidade e a disposição do devedor em honrar o fluxo de pagamentos. A análise é modular e ponderada em três subfatores: Características do Crédito (40%), Perfil do Devedor (40%) e Performance (20%). A análise do devedor se adapta para cenários de Devedor Único (PF ou PJ) ou Carteira de Créditos.
         """)
 
-    with st.expander("Pilar III: Estrutura da CCI (Peso: 15%) - Metodologia Robusta"):
+    with st.expander("Pilar III: Estrutura da CCI (Peso: 15%)"):
         st.markdown("""
         Analisa os mecanismos legais, financeiros e operacionais que protegem o investidor. A análise é dividida em dois componentes principais com pesos dinâmicos:
-        - **Análise Estrutural (Peso 70% para operações novas):** Avalia a qualidade dos prestadores de serviço (Emissor, Servicer), os mecanismos de proteção (Fundo de Reserva, Waterfall) e a robustez dos contratos (Covenants, Pareceres).
-        - **Análise de Performance (Peso 30% para operações novas):** Módulo de vigilância que mede a saúde real do crédito através de métricas de inadimplência, parcelas em atraso e histórico de renegociações. O peso deste componente aumenta para operações com maior histórico de pagamento, pois os dados reais se tornam mais relevantes que a estrutura teórica.
+        - **Análise Estrutural (Peso 70% para ops novas):** Avalia a qualidade dos prestadores (Emissor, Servicer), os mecanismos de proteção (Fundo de Reserva, Waterfall) e a robustez dos contratos.
+        - **Análise de Performance (Peso 30% para ops novas):** Módulo de vigilância que mede a saúde real do crédito através de métricas de inadimplência e renegociações. O peso deste componente aumenta para operações com maior histórico.
         """)
-
-    with st.expander("Pilar IV: Cenário de Mercado (Peso: 10%)"):
-        st.markdown("Contextualiza a operação no ambiente de mercado: juros, tendências do setor imobiliário, liquidez do ativo e ambiente regulatório.")
