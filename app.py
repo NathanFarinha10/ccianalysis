@@ -132,8 +132,20 @@ def ajustar_rating(rating_base, notches):
 
 class PDF(FPDF):
     def header(self):
+        # Adiciona o logo no canto superior esquerdo do PDF
+        # O try/except garante que o PDF seja gerado mesmo se o logo não for encontrado
+        try:
+            if os.path.exists("assets/seu_logo.png"):
+                self.image("assets/seu_logo.png", x=10, y=8, w=33)
+        except Exception:
+            self.set_xy(10, 10)
+            self.set_font('Arial', 'I', 8)
+            self.cell(0, 10, "[Logo nao encontrado]", 0, 0, 'L')
+
+        # Centraliza o título da página
         self.set_font('Arial', 'B', 15)
         self.cell(0, 10, 'Relatório de Analise e Rating de CCIs', 0, 0, 'C')
+        # Quebra de linha
         self.ln(20)
 
     def footer(self):
@@ -519,8 +531,20 @@ def callback_gerar_analise_p3():
 # CORPO PRINCIPAL DA APLICAÇÃO
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Analise e Rating de CCIs")
-st.title("Plataforma de Analise e Rating de CCIs")
-st.markdown("Ferramenta para análise de risco de crédito em Cédulas de Crédito Imobiliário (CCI)")
+
+col1, col2 = st.columns([1, 4]) # Cria colunas para o logo e o título
+
+with col1:
+    # Garante que o app não quebre se o logo não for encontrado
+    if os.path.exists("assets/seu_logo.png"):
+        st.image("assets/seu_logo.png", width=150)
+    else:
+        st.caption("Logo não encontrado")
+
+with col2:
+    st.title("Plataforma de Analise e Rating de CCIs")
+    st.markdown("Ferramenta para análise de risco de crédito em Cédulas de Crédito Imobiliário (CCI)")
+
 st.divider()
 
 inicializar_session_state()
