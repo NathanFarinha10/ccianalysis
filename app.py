@@ -532,12 +532,11 @@ def callback_gerar_analise_p3():
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Analise e Rating de CCIs")
 
-col1, col2 = st.columns([1, 4]) # Cria colunas para o logo e o título
+col1, col2 = st.columns([1, 3]) # <-- 1. AJUSTE: Dando mais espaço relativo para o logo (de 1/5 para 1/4 da largura)
 
 with col1:
-    # Garante que o app não quebre se o logo não for encontrado
     if os.path.exists("assets/seu_logo.png"):
-        st.image("assets/seu_logo.png", width=150)
+        st.image("assets/seu_logo.png", use_column_width='auto') # <-- 2. AJUSTE: Imagem se adapta à coluna, evitando cortes
     else:
         st.caption("Logo não encontrado")
 
