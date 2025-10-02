@@ -52,7 +52,7 @@ def inicializar_session_state():
 
             # --- PILAR 3: Estrutura da CCI ---
             'reputacao_emissor': 'Banco de 1ª linha / Emissor especialista',
-            'regime_fiduciario': 'Sim',
+            'regime_fiduciario': 'True',
             'garantias_adicionais': [],
             'seguros_mip_dfi': 'Sim, apólices vigentes e adequadas',
             'covenants_operacao': 'Fortes, com gatilhos objetivos',
