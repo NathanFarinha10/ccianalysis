@@ -712,10 +712,11 @@ with tab3:
         
         st.subheader("Aging de Inadimplência (% da Carteira)")
         c1, c2, c3, c4 = st.columns(4)
-        with c1: st.number_input("Atraso 30-60 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_30_60_dias', format="%.1f%%")
-        with c2: st.number_input("Atraso 60-90 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_60_90_dias', format="%.1f%%")
-        with c3: st.number_input("Atraso 90-180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_90_180_dias', format="%.1f%%")
-        with c4: st.number_input("Atraso > 180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_acima_180_dias', format="%.1f%%")
+        # --- LINHAS CORRIGIDAS ABAIXO ---
+        with c1: st.number_input("Atraso 30-60 dias (%)", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_30_60_dias', format="%.1f")
+        with c2: st.number_input("Atraso 60-90 dias (%)", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_60_90_dias', format="%.1f")
+        with c3: st.number_input("Atraso 90-180 dias (%)", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_90_180_dias', format="%.1f")
+        with c4: st.number_input("Atraso > 180 dias (%)", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_acima_180_dias', format="%.1f")
         
         st.subheader("Indicadores Dinâmicos de Performance")
         c1, c2, c3 = st.columns(3)
