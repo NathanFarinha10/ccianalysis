@@ -39,7 +39,7 @@ def inicializar_session_state():
             'vetor_crescimento': 'Estável / Consolidado', 'cidade_mapa': 'São Paulo, SP',
             'tipo_imovel': 'Residencial (Apartamento/Casa)', 'estagio_imovel': 'Pronto e averbado',
             'padrao_construtivo': 'Alto Padrão', 'regularidade_matricula': 'Sim, sem ônus relevantes',
-            'habitese_regular': 'Sim',
+            'habitese_regular': True,
 
             # --- PILAR 2: Crédito e Devedor ---
             'valor_avaliacao_imovel': 2500000.0, 'saldo_devedor_credito': 1500000.0,
