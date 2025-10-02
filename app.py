@@ -417,8 +417,8 @@ def calcular_score_pilar3_estrutura_robusto():
 
 def calcular_spread_credito(rating, duration_anos, op_volume):
     matriz_spread_base = {
-        'brAAA(sf)': 1.20, 'brAA(sf)': 1.80, 'brA(sf)': 2.50,
-        'brBBB(sf)': 3.30, 'brBB(sf)': 4.20, 'brB(sf)': 6.00,
+        'brAAA(sf)': 3.00, 'brAA(sf)': 3.50, 'brA(sf)': 4.00,
+        'brBBB(sf)': 4.50, 'brBB(sf)': 5.50, 'brB(sf)': 6.50,
         'brCCC(sf)': 8.50,
     }
     base_spread = matriz_spread_base.get(rating, 10.00)
