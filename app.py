@@ -64,13 +64,11 @@ def inicializar_session_state():
             'reputacao_emissor': 'Banco de 1ª linha / Emissor especialista',
             'qualidade_servicer': 'Interna, com alta especialização',
             'historico_renegociacao': 'Sem histórico de renegociação',
-            # Novos inputs de inadimplência
             'perc_adimplente': 100.0,
             'perc_inad_30_60_dias': 0.0,
             'perc_inad_60_90_dias': 0.0,
             'perc_inad_90_180_dias': 0.0,
             'perc_inad_acima_180_dias': 0.0,
-            'valor_fundo_reserva_atual': 0.0,
             'taxa_cura_mensal': 0.0,
             'roll_rate_mensal': 0.0,
 
@@ -373,10 +371,10 @@ def calcular_score_pilar3_estrutura_robusto():
                          (st.session_state.perc_inad_90_180_dias * 4) + \
                          (st.session_state.perc_inad_acima_180_dias * 8)
         
-        if inad_ponderada <= 5: scores_perf.append(5)
-        elif inad_ponderada <= 15: scores_perf.append(4)
-        elif inad_ponderada <= 30: scores_perf.append(3)
-        elif inad_ponderada <= 50: scores_perf.append(2)
+        if inad_ponderada <= 2: scores_perf.append(5)
+        elif inad_ponderada <= 5: scores_perf.append(4)
+        elif inad_ponderada <= 10: scores_perf.append(3)
+        elif inad_ponderada <= 20: scores_perf.append(2)
         else: scores_perf.append(1)
 
         # Score de Indicadores Dinâmicos
@@ -714,14 +712,10 @@ with tab3:
         
         st.subheader("Aging de Inadimplência (% da Carteira)")
         c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.number_input("Atraso 30-60 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_30_60_dias', format="%.1f")
-        with c2:
-            st.number_input("Atraso 60-90 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_60_90_dias', format="%.1f")
-        with c3:
-            st.number_input("Atraso 90-180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_90_180_dias', format="%.1f")
-        with c4:
-            st.number_input("Atraso > 180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_acima_180_dias', format="%.1f")
+        with c1: st.number_input("Atraso 30-60 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_30_60_dias', format="%.1f%%")
+        with c2: st.number_input("Atraso 60-90 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_60_90_dias', format="%.1f%%")
+        with c3: st.number_input("Atraso 90-180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_90_180_dias', format="%.1f%%")
+        with c4: st.number_input("Atraso > 180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_acima_180_dias', format="%.1f%%")
         
         st.subheader("Indicadores Dinâmicos de Performance")
         c1, c2, c3 = st.columns(3)
@@ -731,16 +725,6 @@ with tab3:
             st.number_input("Roll Rate (Adim. p/ 30d)", key='roll_rate_mensal', help="% de créditos adimplentes que se tornaram inadimplentes (30d) no mês.")
         with c3:
             st.selectbox("Histórico de Renegociação:", ['Sem histórico de renegociação', 'Renegociações pontuais e bem-sucedidas', 'Renegociações recorrentes ou com perdas'], key='historico_renegociacao')
-
-        st.subheader("Cobertura de Risco")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.number_input("Valor do Fundo de Reserva Atual (R$)", key='valor_fundo_reserva_atual')
-        with c2:
-            inad_total_perc = st.session_state.perc_inad_30_60_dias + st.session_state.perc_inad_60_90_dias + st.session_state.perc_inad_90_180_dias + st.session_state.perc_inad_acima_180_dias
-            saldo_inad_total = st.session_state.saldo_devedor_credito * (inad_total_perc / 100)
-            cover_ratio = st.session_state.valor_fundo_reserva_atual / saldo_inad_total if saldo_inad_total > 0 else 999
-            st.metric("Índice de Cobertura da Inadimplência", f"{cover_ratio:.2f}x", help="= (Fundo de Reserva) / (Saldo Inadimplente Total)")
 
     if st.button("Calcular Score Robusto do Pilar 3", use_container_width=True):
         st.session_state.scores['pilar3'] = calcular_score_pilar3_estrutura_robusto()
@@ -850,5 +834,5 @@ with tab_met:
         st.markdown("""
         Analisa os mecanismos operacionais e a performance real da operação. A análise é dividida em dois componentes com pesos dinâmicos:
         - **Análise Estrutural (Peso 30% para ops com histórico):** Avalia a qualidade dos prestadores de serviço (Emissor, Servicer) e a governança da operação.
-        - **Análise de Performance (Peso 70% para ops com histórico):** Módulo de vigilância que mede a saúde real do crédito através de um **Aging de Inadimplência** detalhado, indicadores dinâmicos como **Taxa de Cura** e **Roll Rate**, e o histórico de renegociações. Para operações novas, a Análise Estrutural tem maior peso.
+        - **Análise de Performance (Peso 70% para ops com histórico):** Módulo de vigilância que mede a saúde real do crédito através de um **Aging de Inadimplência** detalhado, indicadores dinâmicos como **Taxa de Cura** e **Roll Rate**, e o histórico de renegociações. Para operações novas, a Análise Estrutural tem maior peso (80%).
         """)
