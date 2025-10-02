@@ -532,18 +532,19 @@ def callback_gerar_analise_p3():
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Analise e Rating de CCIs")
 
-col1, col2 = st.columns([1, 3]) # <-- 1. AJUSTE: Dando mais espaço relativo para o logo (de 1/5 para 1/4 da largura)
+col1, col2 = st.columns([1, 3])
 
 with col1:
     if os.path.exists("assets/seu_logo.png"):
-        st.image("assets/seu_logo.png", use_column_width='auto') # <-- 2. AJUSTE: Imagem se adapta à coluna, evitando cortes
+        # AJUSTE: Parâmetro atualizado para a versão mais recente do Streamlit
+        st.image("assets/seu_logo.png", use_container_width=True)
     else:
         st.caption("Logo não encontrado")
 
 with col2:
     st.title("Plataforma de Analise e Rating de CCIs")
     st.markdown("Ferramenta para análise de risco de crédito em Cédulas de Crédito Imobiliário (CCI)")
-
+    
 st.divider()
 
 inicializar_session_state()
