@@ -60,11 +60,19 @@ def inicializar_session_state():
             'num_devedores': 10, 'concentracao_top5': 60.0,
             'meses_decorridos_pgto': 12, 'maior_atraso_hist': 'Sem atrasos', 'inadimplencia_90d': 0.0,
 
-            # --- PILAR 3: Estrutura da CCI (SIMPLIFICADO) ---
+            # --- PILAR 3: Estrutura da CCI (FINAL) ---
             'reputacao_emissor': 'Banco de 1ª linha / Emissor especialista',
             'qualidade_servicer': 'Interna, com alta especialização',
-            'saldo_inadimplente_90d': 0.0, 'parcelas_em_atraso_media': 0,
             'historico_renegociacao': 'Sem histórico de renegociação',
+            # Novos inputs de inadimplência
+            'perc_adimplente': 100.0,
+            'perc_inad_30_60_dias': 0.0,
+            'perc_inad_60_90_dias': 0.0,
+            'perc_inad_90_180_dias': 0.0,
+            'perc_inad_acima_180_dias': 0.0,
+            'valor_fundo_reserva_atual': 0.0,
+            'taxa_cura_mensal': 0.0,
+            'roll_rate_mensal': 0.0,
 
             # --- Precificação e Resultado ---
             'precificacao_duration_manual': 5.0,
@@ -173,7 +181,7 @@ class PDF(FPDF):
         data = [
             ["Pilar 1: Lastro Imobiliário", f"{pesos['pilar1']*100:.0f}%", f"{ss.scores.get('pilar1', 0):.2f}", f"{ss.scores.get('pilar1', 0) * pesos['pilar1']:.2f}"],
             ["Pilar 2: Crédito e Devedor", f"{pesos['pilar2']*100:.0f}%", f"{ss.scores.get('pilar2', 0):.2f}", f"{ss.scores.get('pilar2', 0) * pesos['pilar2']:.2f}"],
-            ["Pilar 3: Estrutura da CCI", f"{pesos['pilar3']*100:.0f}%", f"{ss.scores.get('pilar3', 0):.2f}", f"{ss.scores.get('pilar3', 0) * pesos['pilar3']:.2f}"],
+            ["Pilar 3: Estrutura e Performance", f"{pesos['pilar3']*100:.0f}%", f"{ss.scores.get('pilar3', 0):.2f}", f"{ss.scores.get('pilar3', 0) * pesos['pilar3']:.2f}"],
         ]
         for row in data:
             for i, item in enumerate(row): self.cell(col_widths[i], line_height, item, border=1, align='C')
@@ -208,7 +216,7 @@ def gerar_relatorio_pdf(ss):
         pdf.ln(10)
 
         pdf.chapter_title('3. Análise Qualitativa com IA Gemini')
-        nomes_pilares = ["Lastro Imobiliário", "Crédito e Devedor", "Estrutura da CCI"]
+        nomes_pilares = ["Lastro Imobiliário", "Crédito e Devedor", "Estrutura e Performance"]
         for i in range(1, 4):
             analise_key = f'analise_p{i}'
             if ss.get(analise_key):
@@ -355,19 +363,31 @@ def calcular_score_pilar3_estrutura_robusto():
     score_estrutura = np.mean(scores_estrutura) if scores_estrutura else 1
 
     # --- Subfator 2: Performance e Inadimplência ---
-    score_performance = 4.0
+    score_performance = 4.0 # Nota neutra/positiva para operações novas
     if st.session_state.historico_pagamento != 'Novo, sem histórico de pagamento':
         scores_perf = []
-        saldo_total = st.session_state.saldo_devedor_credito
-        perc_inad = (st.session_state.saldo_inadimplente_90d / saldo_total) * 100 if saldo_total > 0 else 0
-        if perc_inad == 0: scores_perf.append(5)
-        elif perc_inad <= 3: scores_perf.append(3)
-        elif perc_inad <= 7: scores_perf.append(2)
+        
+        # Score de Inadimplência Ponderada
+        inad_ponderada = (st.session_state.perc_inad_30_60_dias * 1) + \
+                         (st.session_state.perc_inad_60_90_dias * 2) + \
+                         (st.session_state.perc_inad_90_180_dias * 4) + \
+                         (st.session_state.perc_inad_acima_180_dias * 8)
+        
+        if inad_ponderada <= 5: scores_perf.append(5)
+        elif inad_ponderada <= 15: scores_perf.append(4)
+        elif inad_ponderada <= 30: scores_perf.append(3)
+        elif inad_ponderada <= 50: scores_perf.append(2)
         else: scores_perf.append(1)
 
-        parc_atraso = st.session_state.parcelas_em_atraso_media
-        if parc_atraso == 0: scores_perf.append(5)
-        elif parc_atraso <= 2: scores_perf.append(3)
+        # Score de Indicadores Dinâmicos
+        taxa_cura = st.session_state.taxa_cura_mensal
+        if taxa_cura >= 50: scores_perf.append(5)
+        elif taxa_cura >= 20: scores_perf.append(3)
+        else: scores_perf.append(1)
+
+        roll_rate = st.session_state.roll_rate_mensal
+        if roll_rate <= 1: scores_perf.append(5)
+        elif roll_rate <= 3: scores_perf.append(3)
         else: scores_perf.append(1)
 
         map_reneg = {'Sem histórico de renegociação': 5, 'Renegociações pontuais e bem-sucedidas': 4, 'Renegociações recorrentes ou com perdas': 1}
@@ -375,8 +395,8 @@ def calcular_score_pilar3_estrutura_robusto():
 
         score_performance = np.mean(scores_perf) if scores_perf else 1
 
-    # --- Ponderação Final do Pilar ---
-    peso_estrutura = 0.7 if st.session_state.historico_pagamento == 'Novo, sem histórico de pagamento' else 0.5
+    # --- Ponderação Final do Pilar (INVERTIDA) ---
+    peso_estrutura = 0.8 if st.session_state.historico_pagamento == 'Novo, sem histórico de pagamento' else 0.3
     peso_performance = 1 - peso_estrutura
     score_final_pilar3 = (score_estrutura * peso_estrutura) + (score_performance * peso_performance)
     return score_final_pilar3
@@ -485,15 +505,17 @@ def callback_gerar_analise_p3():
       - Qualidade do Agente de Cobrança (Servicer): {st.session_state.qualidade_servicer}
     """
     if st.session_state.historico_pagamento != 'Novo, sem histórico de pagamento':
-        saldo_total = st.session_state.saldo_devedor_credito
-        perc_inad = (st.session_state.saldo_inadimplente_90d / saldo_total) * 100 if saldo_total > 0 else 0
+        inad_total_perc = st.session_state.perc_inad_30_60_dias + st.session_state.perc_inad_60_90_dias + st.session_state.perc_inad_90_180_dias + st.session_state.perc_inad_acima_180_dias
         dados_p3_str += f"""
     - **Performance Atual (Vigilância)**:
-      - Inadimplência (>90d): {perc_inad:.2f}% do saldo devedor
+      - Inadimplência Total (30+ dias): {inad_total_perc:.2f}% da carteira
+      - Inadimplência Severa (>180 dias): {st.session_state.perc_inad_acima_180_dias:.2f}%
+      - Taxa de Cura Mensal: {st.session_state.taxa_cura_mensal:.2f}%
+      - Roll Rate (Adimplente p/ 30d): {st.session_state.roll_rate_mensal:.2f}%
       - Histórico de Renegociação: {st.session_state.historico_renegociacao}
     """
     with st.spinner("Analisando o Pilar 3..."):
-        st.session_state.analise_p3 = gerar_analise_ia("Pilar 3: Estrutura da CCI", dados_p3_str)
+        st.session_state.analise_p3 = gerar_analise_ia("Pilar 3: Estrutura e Performance", dados_p3_str)
 
 # ==============================================================================
 # CORPO PRINCIPAL DA APLICAÇÃO
@@ -532,7 +554,7 @@ st.sidebar.download_button(label="Salvar Análise Atual", data=json_string, file
 # --- DEFINIÇÃO DAS ABAS ---
 tab0, tab1, tab2, tab3, tab_prec, tab_res, tab_met = st.tabs([
     "Cadastro", "Pilar I: Lastro Imobiliário", "Pilar II: Crédito e Devedor",
-    "Pilar III: Estrutura da CCI", "Precificação", "Resultado", "Metodologia"
+    "Pilar III: Estrutura e Performance", "Precificação", "Resultado", "Metodologia"
 ])
 
 with tab0:
@@ -687,17 +709,38 @@ with tab3:
         with c2:
             st.selectbox("Qualidade do Agente de Cobrança (Servicer):", ['Interna, com alta especialização', 'Externa, 1ª linha', 'Externa, padrão de mercado', 'Servicer com histórico fraco'], key='qualidade_servicer')
 
-    with st.expander("Subfator 2: Análise de Performance e Inadimplência (Vigilância/Surveillance)", expanded=True):
+    with st.expander("Subfator 2: Performance e Saúde da Carteira (Vigilância)", expanded=True):
         st.info("Preencha esta seção para operações em andamento. Para novas operações, os valores padrão podem ser mantidos.")
+        
+        st.subheader("Aging de Inadimplência (% da Carteira)")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.number_input("Atraso 30-60 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_30_60_dias', format="%.1f")
+        with c2:
+            st.number_input("Atraso 60-90 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_60_90_dias', format="%.1f")
+        with c3:
+            st.number_input("Atraso 90-180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_90_180_dias', format="%.1f")
+        with c4:
+            st.number_input("Atraso > 180 dias", min_value=0.0, max_value=100.0, step=0.1, key='perc_inad_acima_180_dias', format="%.1f")
+        
+        st.subheader("Indicadores Dinâmicos de Performance")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.number_input("Taxa de Cura Mensal (%)", key='taxa_cura_mensal', help="Dos créditos que entraram em atraso no M-1, % que ficou adimplente em M.")
+        with c2:
+            st.number_input("Roll Rate (Adim. p/ 30d)", key='roll_rate_mensal', help="% de créditos adimplentes que se tornaram inadimplentes (30d) no mês.")
+        with c3:
+            st.selectbox("Histórico de Renegociação:", ['Sem histórico de renegociação', 'Renegociações pontuais e bem-sucedidas', 'Renegociações recorrentes ou com perdas'], key='historico_renegociacao')
+
+        st.subheader("Cobertura de Risco")
         c1, c2 = st.columns(2)
         with c1:
-            st.number_input("Saldo inadimplente (> 90 dias) (R$)", key='saldo_inadimplente_90d')
-            saldo_total = st.session_state.saldo_devedor_credito
-            perc_inad = (st.session_state.saldo_inadimplente_90d / saldo_total) * 100 if saldo_total > 0 else 0
-            st.metric("Inadimplência (> 90d)", f"{perc_inad:.2f}%")
+            st.number_input("Valor do Fundo de Reserva Atual (R$)", key='valor_fundo_reserva_atual')
         with c2:
-            st.number_input("Nº médio de parcelas em atraso por devedor inadimplente", key='parcelas_em_atraso_media', min_value=0, step=1)
-            st.selectbox("Histórico de Renegociação:", ['Sem histórico de renegociação', 'Renegociações pontuais e bem-sucedidas', 'Renegociações recorrentes ou com perdas'], key='historico_renegociacao')
+            inad_total_perc = st.session_state.perc_inad_30_60_dias + st.session_state.perc_inad_60_90_dias + st.session_state.perc_inad_90_180_dias + st.session_state.perc_inad_acima_180_dias
+            saldo_inad_total = st.session_state.saldo_devedor_credito * (inad_total_perc / 100)
+            cover_ratio = st.session_state.valor_fundo_reserva_atual / saldo_inad_total if saldo_inad_total > 0 else 999
+            st.metric("Índice de Cobertura da Inadimplência", f"{cover_ratio:.2f}x", help="= (Fundo de Reserva) / (Saldo Inadimplente Total)")
 
     if st.button("Calcular Score Robusto do Pilar 3", use_container_width=True):
         st.session_state.scores['pilar3'] = calcular_score_pilar3_estrutura_robusto()
@@ -753,7 +796,7 @@ with tab_res:
 
         st.subheader("Scorecard Mestre")
         data = {
-            'Pilar de Análise': ['Pilar 1: Lastro Imobiliário', 'Pilar 2: Crédito e Devedor', 'Pilar 3: Estrutura da CCI'],
+            'Pilar de Análise': ['Pilar 1: Lastro Imobiliário', 'Pilar 2: Crédito e Devedor', 'Pilar 3: Estrutura e Performance'],
             'Peso': [f"{p*100:.0f}%" for p in pesos.values()],
             'Pontuação (1-5)': [f"{st.session_state.scores.get(p, 'N/A'):.2f}" for p in pesos.keys()],
             'Score Ponderado': [f"{(st.session_state.scores.get(p, 1) * pesos[p]):.2f}" for p in pesos.keys()]
@@ -806,6 +849,6 @@ with tab_met:
     with st.expander("Pilar III: Estrutura e Performance da CCI (Peso: 30%)"):
         st.markdown("""
         Analisa os mecanismos operacionais e a performance real da operação. A análise é dividida em dois componentes com pesos dinâmicos:
-        - **Análise Estrutural (Peso 70% para ops novas):** Avalia a qualidade dos prestadores de serviço (Emissor, Servicer) e a governança da operação.
-        - **Análise de Performance (Peso 30% para ops novas):** Módulo de vigilância que mede a saúde real do crédito através de métricas de inadimplência e renegociações. O peso deste componente aumenta para operações com maior histórico de pagamento, pois os dados reais se tornam mais relevantes que a estrutura teórica.
+        - **Análise Estrutural (Peso 30% para ops com histórico):** Avalia a qualidade dos prestadores de serviço (Emissor, Servicer) e a governança da operação.
+        - **Análise de Performance (Peso 70% para ops com histórico):** Módulo de vigilância que mede a saúde real do crédito através de um **Aging de Inadimplência** detalhado, indicadores dinâmicos como **Taxa de Cura** e **Roll Rate**, e o histórico de renegociações. Para operações novas, a Análise Estrutural tem maior peso.
         """)
