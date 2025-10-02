@@ -38,7 +38,7 @@ def inicializar_session_state():
             'liquidez_forcada_perc': 80.0, 'qualidade_localizacao': 'Bairro nobre, alta liquidez',
             'vetor_crescimento': 'Estável / Consolidado', 'cidade_mapa': 'São Paulo, SP',
             'tipo_imovel': 'Residencial (Apartamento/Casa)', 'estagio_imovel': 'Pronto e averbado',
-            'padrao_construtivo': 'Alto Padrão', 'regularidade_matricula': 'Sim, sem ônus relevantes',
+            'padrao_construtivo': 'Luxo/Alto Padrão', 'regularidade_matricula': 'Sim, sem ônus relevantes',
             'habitese_regular': True,
 
             # --- PILAR 2: Crédito e Devedor ---
