@@ -424,7 +424,13 @@ def calcular_spread_credito(rating, duration_anos, op_volume):
     base_spread = matriz_spread_base.get(rating, 10.00)
     liquidity_premium = 0.30 if op_volume < 5_000_000 else 0.10
     duration_adjustment = (duration_anos - 5) * 0.08
-    total_spread = base_spread + liquidity_premium + duration_adjustment
+
+    home_equity_penalty = 0.0
+    if st.session_state.finalidade_credito == 'Home Equity':
+        home_equity_penalty = 0.65  # Adiciona 0.65% (65 bps) de spread. Você pode ajustar este valor.
+
+    total_spread = base_spread + liquidity_premium + duration_adjustment + home_equity_penalty
+    
     return max(0.5, total_spread)
 
 # ==============================================================================
