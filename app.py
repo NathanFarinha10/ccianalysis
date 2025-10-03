@@ -298,7 +298,7 @@ def calcular_score_pilar2_credito_robusto():
     elif ltv <= 70: scores_credito.append(3)
     else: scores_credito.append(1)
 
-    map_finalidade = {'Financiamento de Aquisição': 5, 'Financiamento à Construção': 3, 'Home Equity': 2}
+    map_finalidade = {'Financiamento de Aquisição': 5, 'Financiamento à Construção': 3, 'Home Equity': 1}
     scores_credito.append(map_finalidade[st.session_state.finalidade_credito])
 
     if st.session_state.op_amortizacao == 'SAC': scores_credito.append(5)
